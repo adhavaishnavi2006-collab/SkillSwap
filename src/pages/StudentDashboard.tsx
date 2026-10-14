@@ -19,11 +19,13 @@ import {
   deleteSkillListing,
   deleteStudyNote,
   updateSwapRequestStatus,
+  cancelSwapRequest,
   getStudyNoteById,
 } from '../services/storage';
 import { downloadNotePDF } from '../services/pdfService';
 import {
   ArrowLeftRight,
+  Ban,
   BookOpen,
   Calendar,
   CheckCircle2,
@@ -76,10 +78,28 @@ export const StudentDashboard: React.FC = () => {
     setOutgoingRequests(allRequests.filter((r) => r.requesterId === currentUser.id));
     setMyUploadedNotes(allNotes.filter((n) => n.uploaderId === currentUser.id));
 
-    const myAccessIds = accessRecords
+    // 1. Explicit noteAccess collection records
+    const accessRecordIds = accessRecords
       .filter((r) => r.userId === currentUser.id && r.accessMethod !== 'uploader')
       .map((r) => r.noteId);
-    setMyUnlockedNotes(allNotes.filter((n) => myAccessIds.includes(n.id)));
+
+    // 2. Resources shared through completed skill exchanges
+    const completedSwapNoteIds = allRequests
+      .filter(
+        (r) =>
+          r.status === 'completed' &&
+          (r.ownerId === currentUser.id || r.requesterId === currentUser.id) &&
+          Boolean(r.sharedNoteId)
+      )
+      .map((r) => r.sharedNoteId!);
+
+    // 3. Notes unlocked through verified payments
+    const paidNoteIds = allTxns
+      .filter((t) => t.userId === currentUser.id && t.status === 'verified' && t.itemType === 'note_access')
+      .map((t) => t.itemId);
+
+    const allUnlockedIds = Array.from(new Set([...accessRecordIds, ...completedSwapNoteIds, ...paidNoteIds]));
+    setMyUnlockedNotes(allNotes.filter((n) => allUnlockedIds.includes(n.id)));
 
     setMyDoubts(allDoubts.filter((d) => d.studentId === currentUser.id));
 
@@ -117,13 +137,26 @@ export const StudentDashboard: React.FC = () => {
   };
 
   const handleDownloadById = async (noteId: string) => {
+    if (downloadingNoteId === noteId) return;
+    setDownloadingNoteId(noteId);
     setAlert('Preparing your PDF download…');
+
     const note = await getStudyNoteById(noteId);
     if (!note) {
+      setDownloadingNoteId(null);
       setAlert('This file is no longer available.');
       return;
     }
-    await handleDownloadNote(note);
+
+    const res = await downloadNotePDF(note, currentUser, currentUser?.role === 'admin');
+    setDownloadingNoteId(null);
+
+    if (res.success) {
+      setAlert('Download started successfully.');
+      await loadStudentData();
+    } else {
+      setAlert(res.error || 'Download failed. Please try again.');
+    }
   };
 
   const handleRequestStatus = async (reqId: string, status: 'accepted' | 'rejected' | 'completed') => {
@@ -135,6 +168,21 @@ export const StudentDashboard: React.FC = () => {
           : `Request ${status} successfully in Firestore.`
       );
       await loadStudentData();
+    } else {
+      setAlert(res.error || 'Failed to update request.');
+    }
+  };
+
+  const handleCancelRequest = async (reqId: string) => {
+    if (!currentUser) return;
+    if (window.confirm('Are you sure you want to cancel this pending exchange request?')) {
+      const res = await cancelSwapRequest(reqId, currentUser.id);
+      if (res.success) {
+        setAlert('Exchange request cancelled successfully.');
+        await loadStudentData();
+      } else {
+        setAlert(res.error || 'Failed to cancel request.');
+      }
     }
   };
 
@@ -491,6 +539,26 @@ export const StudentDashboard: React.FC = () => {
                       >
                         {req.status.toUpperCase()}
                       </span>
+                      {req.status === 'pending' && (
+                        <button
+                          onClick={() => handleCancelRequest(req.id)}
+                          className="px-2 py-1 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                          title="Cancel this pending request"
+                        >
+                          <Ban className="w-3 h-3" />
+                          <span>Cancel</span>
+                        </button>
+                      )}
+                      {req.status === 'accepted' && (
+                        <button
+                          onClick={() => handleRequestStatus(req.id, 'completed')}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                          title="Confirm session completion"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Mark Completed</span>
+                        </button>
+                      )}
                       {req.status === 'completed' && req.sharedNoteId && (
                         <button
                           disabled={downloadingNoteId === req.sharedNoteId}
@@ -664,6 +732,7 @@ export const StudentDashboard: React.FC = () => {
                     <th className="py-3 px-4 font-semibold">Amount</th>
                     <th className="py-3 px-4 font-semibold">Status</th>
                     <th className="py-3 px-4 font-semibold">Date</th>
+                    <th className="py-3 px-4 font-semibold text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
@@ -680,6 +749,30 @@ export const StudentDashboard: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-slate-400 text-[11px]">
                         {new Date(tx.verifiedAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {tx.itemType === 'note_access' ? (
+                          <button
+                            disabled={downloadingNoteId === tx.itemId}
+                            onClick={() => handleDownloadById(tx.itemId)}
+                            className="inline-flex items-center gap-1 py-1 px-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-[11px] font-semibold transition-colors"
+                            title="Download purchased PDF notes"
+                          >
+                            {downloadingNoteId === tx.itemId ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                            ) : (
+                              <Download className="w-3 h-3" />
+                            )}
+                            <span>Download PDF</span>
+                          </button>
+                        ) : (
+                          <Link
+                            to="/skill-swap"
+                            className="inline-block text-[11px] font-semibold text-indigo-600 hover:underline"
+                          >
+                            View Session →
+                          </Link>
+                        )}
                       </td>
                     </tr>
                   ))}

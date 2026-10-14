@@ -18,6 +18,7 @@ import {
   getStudyNoteById,
 } from '../services/storage';
 import { downloadNotePDF } from '../services/pdfService';
+import { PaymentModal } from '../components/PaymentModal';
 import {
   ArrowLeftRight,
   CheckCircle2,
@@ -60,6 +61,10 @@ export const SkillSwapPage: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [targetListing, setTargetListing] = useState<SkillSwapListing | null>(null);
+  const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; listing: SkillSwapListing | null }>({
+    isOpen: false,
+    listing: null,
+  });
 
   // New Listing Form State
   const [skillOffered, setSkillOffered] = useState('');
@@ -228,6 +233,27 @@ export const SkillSwapPage: React.FC = () => {
     }
   };
 
+  const handlePaidBookingSuccess = async (transactionId: string) => {
+    const listing = paymentModalData.listing || targetListing;
+    if (!listing || !currentUser) return;
+
+    await createSwapRequest({
+      listingId: listing.id,
+      listingTitle: `${listing.skillOffered} (${listing.userName})`,
+      ownerId: listing.userId,
+      proposedSkill: 'Paid 1-on-1 Assistance Session',
+      message: `Verified payment completed (Txn: ${transactionId}). Looking forward to our tutoring session on campus!`,
+      user: currentUser,
+    });
+
+    setAlert({
+      type: 'success',
+      message: `Verified campus payment recorded! 1-on-1 tutoring booked with ${listing.userName}.`,
+    });
+    setPaymentModalData({ isOpen: false, listing: null });
+    await loadData();
+  };
+
   // Filter listings
   const filteredListings = listings.filter((l) => {
     const matchesSearch =
@@ -312,73 +338,94 @@ export const SkillSwapPage: React.FC = () => {
         </div>
       )}
 
-      {/* Pending / Active Incoming Requests Notification Banner */}
-      {isAuthenticated && myIncomingRequests.filter((r) => r.status === 'pending' || r.status === 'accepted').length > 0 && (
-        <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 text-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-purple-900 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-purple-600" />
-              <span>You have active exchange request(s) on your skill listings!</span>
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-            {myIncomingRequests
-              .filter((r) => r.status === 'pending' || r.status === 'accepted')
-              .map((req) => (
-                <div key={req.id} className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-xs flex flex-col justify-between gap-2">
-                  <div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                      <span className="font-semibold text-slate-900">{req.requesterName} ({req.requesterYear})</span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium border ${
-                          req.status === 'accepted'
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}
-                      >
-                        {req.status.toUpperCase()}
-                      </span>
+      {/* Pending / Active / Completed Incoming Requests Notification Banner */}
+      {isAuthenticated &&
+        myIncomingRequests.filter(
+          (r) => r.status === 'pending' || r.status === 'accepted' || (r.status === 'completed' && r.sharedNoteId)
+        ).length > 0 && (
+          <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 text-xs space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-purple-900 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-purple-600" />
+                <span>Exchange Requests & Learning Materials</span>
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {myIncomingRequests
+                .filter(
+                  (r) => r.status === 'pending' || r.status === 'accepted' || (r.status === 'completed' && r.sharedNoteId)
+                )
+                .map((req) => (
+                  <div key={req.id} className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-xs flex flex-col justify-between gap-2">
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                        <span className="font-semibold text-slate-900">{req.requesterName} ({req.requesterYear})</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium border ${
+                            req.status === 'completed'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
+                              : req.status === 'accepted'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}
+                        >
+                          {req.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-700 font-medium">Offers in return: {req.proposedSkill}</p>
+                      {req.sharedNoteTitle && (
+                        <p className="text-indigo-600 text-[11px] font-medium">Attached study guide: {req.sharedNoteTitle}</p>
+                      )}
+                      <p className="text-xs text-slate-600 italic mt-1">"{req.message}"</p>
                     </div>
-                    <p className="text-xs text-indigo-700 font-medium">Offers in return: {req.proposedSkill}</p>
-                    {req.sharedNoteTitle && (
-                      <p className="text-indigo-600 text-[11px] font-medium">Attached study guide: {req.sharedNoteTitle}</p>
-                    )}
-                    <p className="text-xs text-slate-600 italic mt-1">"{req.message}"</p>
-                  </div>
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                    {req.status === 'pending' && (
-                      <>
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      {req.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleRequestStatusChange(req.id, 'rejected')}
+                            className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <Ban className="w-3 h-3" />
+                            <span>Decline</span>
+                          </button>
+                          <button
+                            onClick={() => handleRequestStatusChange(req.id, 'accepted')}
+                            className="px-3 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>Accept Exchange</span>
+                          </button>
+                        </>
+                      )}
+                      {req.status === 'accepted' && (
                         <button
-                          onClick={() => handleRequestStatusChange(req.id, 'rejected')}
-                          className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
+                          onClick={() => handleRequestStatusChange(req.id, 'completed')}
+                          className="px-3 py-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-1"
                         >
-                          <Ban className="w-3 h-3" />
-                          <span>Decline</span>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Mark Swap Completed</span>
                         </button>
+                      )}
+                      {req.status === 'completed' && req.sharedNoteId && (
                         <button
-                          onClick={() => handleRequestStatusChange(req.id, 'accepted')}
-                          className="px-3 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1"
+                          disabled={downloadingNoteId === req.sharedNoteId}
+                          onClick={() => handleDownloadById(req.sharedNoteId!)}
+                          className="px-3 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1"
                         >
-                          <Check className="w-3 h-3" />
-                          <span>Accept Exchange</span>
+                          {downloadingNoteId === req.sharedNoteId ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>Download Exchanged PDF</span>
                         </button>
-                      </>
-                    )}
-                    {req.status === 'accepted' && (
-                      <button
-                        onClick={() => handleRequestStatusChange(req.id, 'completed')}
-                        className="px-3 py-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-1"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Mark Swap Completed</span>
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Search and Filters Strip */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
@@ -554,6 +601,29 @@ export const SkillSwapPage: React.FC = () => {
                           title="Delete Listing"
                         >
                           <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : item.exchangeType === 'paid' ? (
+                      <div className="w-full grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => {
+                            if (!isAuthenticated) {
+                              setAlert({ type: 'error', message: 'Please log in to book paid tutoring assistance.' });
+                            } else {
+                              setTargetListing(item);
+                              setPaymentModalData({ isOpen: true, listing: item });
+                            }
+                          }}
+                          className="py-2 px-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                        >
+                          <span>Book (₹{item.hourlyRate})</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenRequestModal(item)}
+                          className="py-2 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                        >
+                          <ArrowLeftRight className="w-3.5 h-3.5" />
+                          <span>Swap</span>
                         </button>
                       </div>
                     ) : (
@@ -788,6 +858,19 @@ export const SkillSwapPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Payment Modal for Paid 1-on-1 Tutoring Assistance */}
+      {paymentModalData.isOpen && paymentModalData.listing && (
+        <PaymentModal
+          isOpen={paymentModalData.isOpen}
+          onClose={() => setPaymentModalData({ isOpen: false, listing: null })}
+          itemType="skill_swap_session"
+          itemId={paymentModalData.listing.id}
+          itemTitle={`${paymentModalData.listing.skillOffered} — 1-on-1 Mentorship by ${paymentModalData.listing.userName}`}
+          amount={paymentModalData.listing.hourlyRate || 50}
+          onSuccess={handlePaidBookingSuccess}
+        />
       )}
 
     </div>

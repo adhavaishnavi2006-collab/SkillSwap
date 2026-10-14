@@ -412,6 +412,31 @@ export async function updateSwapRequestStatus(
   }
 }
 
+export async function cancelSwapRequest(
+  requestId: string,
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(db, REQUESTS_COLLECTION, requestId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      return { success: false, error: 'Request not found.' };
+    }
+    const data = snap.data() as SkillSwapRequest;
+    if (data.requesterId !== userId) {
+      return { success: false, error: 'You can only cancel requests that you submitted.' };
+    }
+    if (data.status !== 'pending') {
+      return { success: false, error: 'Only pending requests can be cancelled.' };
+    }
+    await deleteDoc(docRef);
+    return { success: true };
+  } catch (error) {
+    console.error('Error cancelling swap request:', error);
+    return { success: false, error: (error as Error).message || 'Failed to cancel request' };
+  }
+}
+
 // ----------------- NOTES & STORAGE SERVICES (FIRESTORE + FIREBASE STORAGE) -----------------
 
 export async function getStudyNotes(): Promise<StudyNote[]> {
@@ -449,9 +474,28 @@ export async function checkHasFullNoteAccess(noteId: string, userId?: string, is
     // Uploader always has full access
     if (note.uploaderId === userId) return true;
 
-    // Check Firestore access records
+    // 1. Check explicit Firestore access records
     const records = await getNoteAccessRecords();
-    return records.some((r) => r.noteId === noteId && r.userId === userId);
+    if (records.some((r) => r.noteId === noteId && r.userId === userId)) return true;
+
+    // 2. Check completed skill swap requests where this note was exchanged
+    const requests = await getSkillRequests();
+    const hasCompletedSwap = requests.some(
+      (req) =>
+        req.sharedNoteId === noteId &&
+        req.status === 'completed' &&
+        (req.ownerId === userId || req.requesterId === userId)
+    );
+    if (hasCompletedSwap) return true;
+
+    // 3. Check verified payment transactions
+    const txns = await getTransactions();
+    const hasVerifiedPayment = txns.some(
+      (t) => t.itemId === noteId && t.userId === userId && t.status === 'verified'
+    );
+    if (hasVerifiedPayment) return true;
+
+    return false;
   } catch {
     return false;
   }
