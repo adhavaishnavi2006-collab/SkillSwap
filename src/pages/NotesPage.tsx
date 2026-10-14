@@ -9,6 +9,7 @@ import {
   unlockNoteViaExchange,
 } from '../services/storage';
 import { PaymentModal } from '../components/PaymentModal';
+import { downloadNotePDF } from '../services/pdfService';
 import {
   BookOpen,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
   Download,
   FileText,
   Filter,
+  Loader2,
   Lock,
   Plus,
   Search,
@@ -65,8 +67,9 @@ export const NotesPage: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  // Notifications
-  const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Notifications & Download Progress
+  const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [downloadingNoteId, setDownloadingNoteId] = useState<string | null>(null);
 
   const loadData = async () => {
     const [fetchedNotes, accessRecords] = await Promise.all([
@@ -177,6 +180,27 @@ export const NotesPage: React.FC = () => {
     setReaderCurrentPage(1);
   };
 
+  const handleDownloadNote = async (note: StudyNote) => {
+    if (downloadingNoteId === note.id) return; // Prevent duplicate concurrent downloads
+    if (!currentUser) {
+      setAlert({ type: 'error', message: 'You do not have permission to download this file. Please sign in first.' });
+      return;
+    }
+
+    setDownloadingNoteId(note.id);
+    setAlert({ type: 'info', message: 'Preparing your PDF download…' });
+
+    const result = await downloadNotePDF(note, currentUser, currentUser.role === 'admin');
+    setDownloadingNoteId(null);
+
+    if (result.success) {
+      setAlert({ type: 'success', message: 'Download started successfully.' });
+      await loadData();
+    } else {
+      setAlert({ type: 'error', message: result.error || 'Download failed. Please try again.' });
+    }
+  };
+
   const handleUnlockViaExchange = async (noteId: string) => {
     if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'Please log in to unlock notes via exchange.' });
@@ -187,20 +211,28 @@ export const NotesPage: React.FC = () => {
     if (res.success) {
       setAlert({
         type: 'success',
-        message: 'Full access unlocked in Firestore through notes exchange! All pages are now viewable.',
+        message: 'Full access unlocked in Firestore through notes exchange! All pages are now viewable and downloadable.',
       });
       await loadData();
+      const targetNote = notes.find((n) => n.id === noteId);
+      if (targetNote) {
+        await handleDownloadNote(targetNote);
+      }
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to unlock notes.' });
     }
   };
 
   const handlePaymentSuccess = async () => {
+    const purchasedNote = paymentModalData.note;
     setAlert({
       type: 'success',
       message: 'Verified campus payment recorded in Firestore! Full PDF notes access has been unlocked.',
     });
     await loadData();
+    if (purchasedNote) {
+      await handleDownloadNote(purchasedNote);
+    }
   };
 
   // Filter notes
@@ -255,12 +287,16 @@ export const NotesPage: React.FC = () => {
           className={`p-4 rounded-2xl text-xs flex items-center justify-between shadow-xs ${
             alert.type === 'success'
               ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : alert.type === 'info'
+              ? 'bg-blue-50 border border-blue-200 text-blue-800'
               : 'bg-rose-50 border border-rose-200 text-rose-800'
           }`}
         >
           <div className="flex items-center gap-2">
             {alert.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : alert.type === 'info' ? (
+              <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
@@ -444,16 +480,22 @@ export const NotesPage: React.FC = () => {
 
                       {hasFullAccess ? (
                         <button
-                          onClick={() => {
-                            setAlert({
-                              type: 'success',
-                              message: `Downloading complete PDF: ${note.fileName} (${note.totalPages} pages).`,
-                            });
-                          }}
-                          className="py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                          disabled={downloadingNoteId === note.id}
+                          onClick={() => handleDownloadNote(note)}
+                          className="py-2 px-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+                          title="Download authorized PDF notes"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
+                          {downloadingNoteId === note.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                              <span>Preparing…</span>
+                            </>
+                          ) : (
+                            <>
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download PDF</span>
+                            </>
+                          )}
                         </button>
                       ) : note.accessType === 'free_exchange' ? (
                         <button
@@ -525,6 +567,23 @@ export const NotesPage: React.FC = () => {
                 <span className="text-xs text-slate-400 hidden sm:inline">
                   Page {readerCurrentPage} of {(activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin') ? activeReadingNote.totalPages : activeReadingNote.freePreviewPages}
                 </span>
+
+                {(activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin') && (
+                  <button
+                    disabled={downloadingNoteId === activeReadingNote.id}
+                    onClick={() => handleDownloadNote(activeReadingNote)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
+                    title="Download complete PDF"
+                  >
+                    {downloadingNoteId === activeReadingNote.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5" />
+                    )}
+                    <span>Download PDF</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => setActiveReadingNote(null)}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"

@@ -5,6 +5,7 @@ import {
   ExchangeType,
   SkillSwapListing,
   SkillSwapRequest,
+  StudyNote,
 } from '../types';
 import {
   getSkillListings,
@@ -13,11 +14,16 @@ import {
   getSkillRequests,
   createSwapRequest,
   updateSwapRequestStatus,
+  getStudyNotes,
+  getStudyNoteById,
 } from '../services/storage';
+import { downloadNotePDF } from '../services/pdfService';
 import {
   ArrowLeftRight,
   CheckCircle2,
+  Download,
   Filter,
+  Loader2,
   Plus,
   Search,
   Sparkles,
@@ -66,22 +72,29 @@ export const SkillSwapPage: React.FC = () => {
   // Exchange Request Form State
   const [proposedSkill, setProposedSkill] = useState('');
   const [requestMessage, setRequestMessage] = useState('');
+  const [selectedSharedNoteId, setSelectedSharedNoteId] = useState('');
+  const [myNotes, setMyNotes] = useState<StudyNote[]>([]);
+  const [downloadingNoteId, setDownloadingNoteId] = useState<string | null>(null);
 
   // Feedback Notifications
-  const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [alert, setAlert] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   const loadData = async () => {
-    const [fetchedListings, fetchedRequests] = await Promise.all([
+    const [fetchedListings, fetchedRequests, allNotes] = await Promise.all([
       getSkillListings(),
       getSkillRequests(),
+      getStudyNotes(),
     ]);
     setListings(fetchedListings);
     setRequests(fetchedRequests);
+    if (currentUser) {
+      setMyNotes(allNotes.filter((n) => n.uploaderId === currentUser.id));
+    }
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentUser]);
 
   const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,6 +143,31 @@ export const SkillSwapPage: React.FC = () => {
     }
   };
 
+  const handleDownloadById = async (noteId: string) => {
+    if (downloadingNoteId === noteId) return;
+    if (!currentUser) return;
+
+    setDownloadingNoteId(noteId);
+    setAlert({ type: 'info', message: 'Preparing your PDF download…' });
+
+    const note = await getStudyNoteById(noteId);
+    if (!note) {
+      setDownloadingNoteId(null);
+      setAlert({ type: 'error', message: 'This file is no longer available.' });
+      return;
+    }
+
+    const res = await downloadNotePDF(note, currentUser, currentUser.role === 'admin');
+    setDownloadingNoteId(null);
+
+    if (res.success) {
+      setAlert({ type: 'success', message: 'Download started successfully.' });
+      await loadData();
+    } else {
+      setAlert({ type: 'error', message: res.error || 'Download failed. Please try again.' });
+    }
+  };
+
   const handleOpenRequestModal = (listing: SkillSwapListing) => {
     if (!isAuthenticated) {
       setAlert({ type: 'error', message: 'Please log in to send a skill exchange request.' });
@@ -137,6 +175,7 @@ export const SkillSwapPage: React.FC = () => {
     }
     setTargetListing(listing);
     setProposedSkill('');
+    setSelectedSharedNoteId('');
     setRequestMessage(`Hi ${listing.userName}, I would love to learn ${listing.skillOffered} and can exchange skills with you!`);
     setIsRequestModalOpen(true);
   };
@@ -150,6 +189,8 @@ export const SkillSwapPage: React.FC = () => {
       return;
     }
 
+    const attachedNote = myNotes.find((n) => n.id === selectedSharedNoteId);
+
     const res = await createSwapRequest({
       listingId: targetListing.id,
       listingTitle: `${targetListing.skillOffered} (${targetListing.userName})`,
@@ -157,6 +198,8 @@ export const SkillSwapPage: React.FC = () => {
       proposedSkill,
       message: requestMessage,
       user: currentUser,
+      sharedNoteId: selectedSharedNoteId || undefined,
+      sharedNoteTitle: attachedNote?.title,
     });
 
     if (res.success) {
@@ -169,12 +212,15 @@ export const SkillSwapPage: React.FC = () => {
     }
   };
 
-  const handleRequestStatusChange = async (reqId: string, status: 'accepted' | 'rejected') => {
+  const handleRequestStatusChange = async (reqId: string, status: 'accepted' | 'rejected' | 'completed') => {
     const res = await updateSwapRequestStatus(reqId, status);
     if (res.success) {
       setAlert({
         type: 'success',
-        message: `Request status updated to ${status} in Firestore.`,
+        message:
+          status === 'completed'
+            ? 'Skill exchange marked as completed! Any attached learning notes have been unlocked.'
+            : `Request status updated to ${status} in Firestore.`,
       });
       await loadData();
     } else {
@@ -242,12 +288,16 @@ export const SkillSwapPage: React.FC = () => {
           className={`p-4 rounded-2xl text-xs flex items-center justify-between shadow-xs ${
             alert.type === 'success'
               ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : alert.type === 'info'
+              ? 'bg-indigo-50 border border-indigo-200 text-indigo-800'
               : 'bg-rose-50 border border-rose-200 text-rose-800'
           }`}
         >
           <div className="flex items-center gap-2">
             {alert.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : alert.type === 'info' ? (
+              <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
             ) : (
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
@@ -262,45 +312,67 @@ export const SkillSwapPage: React.FC = () => {
         </div>
       )}
 
-      {/* Pending Incoming Requests Notification Banner */}
-      {isAuthenticated && myIncomingRequests.filter((r) => r.status === 'pending').length > 0 && (
+      {/* Pending / Active Incoming Requests Notification Banner */}
+      {isAuthenticated && myIncomingRequests.filter((r) => r.status === 'pending' || r.status === 'accepted').length > 0 && (
         <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 text-xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="font-bold text-purple-900 flex items-center gap-2">
               <Clock className="w-4 h-4 text-purple-600" />
-              <span>You have {myIncomingRequests.filter((r) => r.status === 'pending').length} pending exchange request(s) on your skill listings!</span>
+              <span>You have active exchange request(s) on your skill listings!</span>
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
             {myIncomingRequests
-              .filter((r) => r.status === 'pending')
+              .filter((r) => r.status === 'pending' || r.status === 'accepted')
               .map((req) => (
                 <div key={req.id} className="bg-white p-3.5 rounded-xl border border-purple-100 shadow-xs flex flex-col justify-between gap-2">
                   <div>
                     <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
                       <span className="font-semibold text-slate-900">{req.requesterName} ({req.requesterYear})</span>
-                      <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-md font-medium border border-amber-200">
-                        Pending
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium border ${
+                          req.status === 'accepted'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}
+                      >
+                        {req.status.toUpperCase()}
                       </span>
                     </div>
                     <p className="text-xs text-indigo-700 font-medium">Offers in return: {req.proposedSkill}</p>
+                    {req.sharedNoteTitle && (
+                      <p className="text-indigo-600 text-[11px] font-medium">Attached study guide: {req.sharedNoteTitle}</p>
+                    )}
                     <p className="text-xs text-slate-600 italic mt-1">"{req.message}"</p>
                   </div>
                   <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                    <button
-                      onClick={() => handleRequestStatusChange(req.id, 'rejected')}
-                      className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      <Ban className="w-3 h-3" />
-                      <span>Decline</span>
-                    </button>
-                    <button
-                      onClick={() => handleRequestStatusChange(req.id, 'accepted')}
-                      className="px-3 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1"
-                    >
-                      <Check className="w-3 h-3" />
-                      <span>Accept Exchange</span>
-                    </button>
+                    {req.status === 'pending' && (
+                      <>
+                        <button
+                          onClick={() => handleRequestStatusChange(req.id, 'rejected')}
+                          className="px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <Ban className="w-3 h-3" />
+                          <span>Decline</span>
+                        </button>
+                        <button
+                          onClick={() => handleRequestStatusChange(req.id, 'accepted')}
+                          className="px-3 py-1 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Accept Exchange</span>
+                        </button>
+                      </>
+                    )}
+                    {req.status === 'accepted' && (
+                      <button
+                        onClick={() => handleRequestStatusChange(req.id, 'completed')}
+                        className="px-3 py-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Mark Swap Completed</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -674,6 +746,29 @@ export const SkillSwapPage: React.FC = () => {
                   className="w-full text-xs px-3.5 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
+
+              {myNotes.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Optional: Attach one of your Study Guides to share in exchange
+                  </label>
+                  <select
+                    value={selectedSharedNoteId}
+                    onChange={(e) => setSelectedSharedNoteId(e.target.value)}
+                    className="w-full text-xs px-3.5 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-slate-800"
+                  >
+                    <option value="">No attachment (in-person / peer tutoring only)</option>
+                    {myNotes.map((note) => (
+                      <option key={note.id} value={note.id}>
+                        {note.title} ({note.subject} · {note.totalPages}p)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    When this exchange is completed, {targetListing.userName} will be able to download your shared guide.
+                  </p>
+                </div>
+              )}
 
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button

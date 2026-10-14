@@ -336,6 +336,8 @@ export async function createSwapRequest(params: {
   proposedSkill: string;
   message: string;
   user: User;
+  sharedNoteId?: string;
+  sharedNoteTitle?: string;
 }): Promise<{ success: boolean; request?: SkillSwapRequest; error?: string }> {
   try {
     if (params.ownerId === params.user.id) {
@@ -353,6 +355,8 @@ export async function createSwapRequest(params: {
       proposedSkill: params.proposedSkill.trim(),
       message: params.message.trim(),
       status: 'pending',
+      sharedNoteId: params.sharedNoteId,
+      sharedNoteTitle: params.sharedNoteTitle,
       createdAt: new Date().toISOString(),
     };
 
@@ -366,11 +370,41 @@ export async function createSwapRequest(params: {
 
 export async function updateSwapRequestStatus(
   requestId: string,
-  newStatus: 'accepted' | 'rejected'
+  newStatus: 'accepted' | 'rejected' | 'completed'
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const docRef = doc(db, REQUESTS_COLLECTION, requestId);
-    await updateDoc(docRef, { status: newStatus });
+    const snap = await getDoc(docRef);
+    const updatePayload: Record<string, unknown> = { status: newStatus };
+    if (newStatus === 'completed') {
+      updatePayload.completedAt = new Date().toISOString();
+    }
+    await updateDoc(docRef, updatePayload);
+
+    // When an exchange is officially marked completed and has an attached study note / resource,
+    // grant verified access in noteAccess to both the requester and listing owner
+    if (newStatus === 'completed' && snap.exists()) {
+      const reqData = snap.data() as SkillSwapRequest;
+      if (reqData.sharedNoteId) {
+        // Grant requester access
+        await addDoc(collection(db, NOTE_ACCESS_COLLECTION), {
+          noteId: reqData.sharedNoteId,
+          userId: reqData.requesterId,
+          accessMethod: 'skill_swap',
+          requestId: requestId,
+          unlockedAt: new Date().toISOString(),
+        });
+        // Grant owner access if not already uploader
+        await addDoc(collection(db, NOTE_ACCESS_COLLECTION), {
+          noteId: reqData.sharedNoteId,
+          userId: reqData.ownerId,
+          accessMethod: 'skill_swap',
+          requestId: requestId,
+          unlockedAt: new Date().toISOString(),
+        });
+      }
+    }
+
     return { success: true };
   } catch (error) {
     console.error('Error updating request status:', error);
@@ -468,19 +502,22 @@ export async function uploadStudyNoteWithStorage(params: {
   const totalPages = params.totalPages || Math.max(12, samplePages.length + 7);
 
   let fileUrl = '';
+  let storagePath = '';
   let storageUploaded = false;
 
   // Attempt Firebase Storage Upload
   try {
     const safeFileName = `${Date.now()}_${params.file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const storageRef = ref(storage, `notes/${params.user.id}/${safeFileName}`);
+    storagePath = `notes/${params.user.id}/${safeFileName}`;
+    const storageRef = ref(storage, storagePath);
     const uploadResult = await uploadBytes(storageRef, params.file, { contentType: 'application/pdf' });
     fileUrl = await getDownloadURL(uploadResult.ref);
     storageUploaded = true;
   } catch (storageErr) {
     console.warn('Firebase Storage note upload notice (bucket may need CORS or storage enablement in console):', storageErr);
-    // Graceful fallback to client blob representation so the note metadata is not lost
+    // Graceful fallback to client representation so the note metadata is not lost
     fileUrl = '';
+    storagePath = '';
   }
 
   try {
@@ -496,6 +533,7 @@ export async function uploadStudyNoteWithStorage(params: {
       freePreviewPages: 5,
       fileName: params.file.name,
       fileSize: params.file.size,
+      storagePath: storagePath || undefined,
       fileUrl: fileUrl || undefined,
       accessType: params.accessType,
       price: params.accessType === 'paid' ? Number(params.price) || 25 : undefined,
@@ -519,6 +557,35 @@ export async function uploadStudyNoteWithStorage(params: {
   } catch (error) {
     console.error('Error saving note metadata in Firestore:', error);
     return { success: false, storageUploaded: false, error: (error as Error).message || 'Failed to save note' };
+  }
+}
+
+export async function getStudyNoteById(noteId: string): Promise<StudyNote | null> {
+  try {
+    const docRef = doc(db, NOTES_COLLECTION, noteId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return { ...snap.data(), id: snap.id } as StudyNote;
+    }
+    const all = await getStudyNotes();
+    return all.find((n) => n.id === noteId) || null;
+  } catch (error) {
+    console.warn('Error fetching note by id:', error);
+    const all = await getStudyNotes();
+    return all.find((n) => n.id === noteId) || null;
+  }
+}
+
+export async function incrementNoteDownloads(noteId: string): Promise<void> {
+  try {
+    const docRef = doc(db, NOTES_COLLECTION, noteId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const current = snap.data().downloadsCount || 0;
+      await updateDoc(docRef, { downloadsCount: current + 1 });
+    }
+  } catch (err) {
+    console.warn('Could not increment downloadsCount:', err);
   }
 }
 

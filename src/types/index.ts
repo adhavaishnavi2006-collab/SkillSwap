@@ -41,7 +41,7 @@ export interface SkillSwapListing {
   createdAt: string;
 }
 
-export type RequestStatus = 'pending' | 'accepted' | 'rejected';
+export type RequestStatus = 'pending' | 'accepted' | 'rejected' | 'completed';
 
 export interface SkillSwapRequest {
   id: string;
@@ -55,6 +55,9 @@ export interface SkillSwapRequest {
   proposedSkill: string;
   message: string;
   status: RequestStatus;
+  sharedNoteId?: string;
+  sharedNoteTitle?: string;
+  completedAt?: string;
   createdAt: string;
 }
 
@@ -79,6 +82,7 @@ export interface StudyNote {
   freePreviewPages: number; // exactly 5
   fileName: string;
   fileSize: number; // in bytes
+  storagePath?: string; // Firebase Storage path (e.g. notes/{userId}/{filename})
   fileDataUrl?: string; // stored data URI or sample representation
   fileUrl?: string; // Firebase Storage download URL
   accessType: 'free_exchange' | 'paid';
@@ -93,8 +97,9 @@ export interface NoteAccessRecord {
   id: string;
   noteId: string;
   userId: string;
-  accessMethod: 'uploader' | 'free_exchange' | 'paid';
+  accessMethod: 'uploader' | 'free_exchange' | 'paid' | 'skill_swap';
   transactionId?: string;
+  requestId?: string;
   unlockedAt: string;
 }
 

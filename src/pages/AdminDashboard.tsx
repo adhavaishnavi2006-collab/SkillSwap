@@ -22,7 +22,11 @@ import {
   AlertCircle,
   BarChart3,
   Layers,
+  Download,
+  Loader2,
 } from 'lucide-react';
+import { downloadNotePDF } from '../services/pdfService';
+import { StudyNote } from '../types';
 
 export const AdminDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -31,10 +35,24 @@ export const AdminDashboard: React.FC = () => {
 
   // Live item lists for moderation
   const [skillsList, setSkillsList] = useState<any[]>([]);
-  const [notesList, setNotesList] = useState<any[]>([]);
+  const [notesList, setNotesList] = useState<StudyNote[]>([]);
   const [doubtsList, setDoubtsList] = useState<any[]>([]);
   const [transactionsList, setTransactionsList] = useState<any[]>([]);
   const [alert, setAlert] = useState<string | null>(null);
+  const [downloadingNoteId, setDownloadingNoteId] = useState<string | null>(null);
+
+  const handleAdminDownloadNote = async (note: StudyNote) => {
+    if (downloadingNoteId === note.id) return;
+    setDownloadingNoteId(note.id);
+    setAlert('Preparing your PDF download…');
+    const res = await downloadNotePDF(note, currentUser, true);
+    setDownloadingNoteId(null);
+    if (res.success) {
+      setAlert('Download started successfully.');
+    } else {
+      setAlert(res.error || 'Download failed.');
+    }
+  };
 
   const refreshAll = async () => {
     const [m, s, n, d, t] = await Promise.all([
@@ -371,13 +389,27 @@ export const AdminDashboard: React.FC = () => {
                   </td>
                   <td className="py-3 px-4 text-slate-600">{n.uploaderName}</td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => handleAdminDeleteNote(n.id)}
-                      className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-50"
-                      title="Admin Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        disabled={downloadingNoteId === n.id}
+                        onClick={() => handleAdminDownloadNote(n)}
+                        className="text-slate-600 hover:text-slate-900 p-1 rounded hover:bg-slate-100"
+                        title="Admin Download PDF"
+                      >
+                        {downloadingNoteId === n.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleAdminDeleteNote(n.id)}
+                        className="text-rose-600 hover:text-rose-800 p-1 rounded hover:bg-rose-50"
+                        title="Admin Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

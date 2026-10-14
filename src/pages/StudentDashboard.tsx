@@ -19,7 +19,9 @@ import {
   deleteSkillListing,
   deleteStudyNote,
   updateSwapRequestStatus,
+  getStudyNoteById,
 } from '../services/storage';
+import { downloadNotePDF } from '../services/pdfService';
 import {
   ArrowLeftRight,
   BookOpen,
@@ -27,9 +29,11 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  Download,
   FileText,
   GraduationCap,
   HelpCircle,
+  Loader2,
   Mail,
   Plus,
   Shield,
@@ -53,6 +57,7 @@ export const StudentDashboard: React.FC = () => {
   const [myAnswersCount, setMyAnswersCount] = useState<number>(0);
   const [myTransactions, setMyTransactions] = useState<PaymentTransaction[]>([]);
   const [alert, setAlert] = useState<string | null>(null);
+  const [downloadingNoteId, setDownloadingNoteId] = useState<string | null>(null);
 
   const loadStudentData = async () => {
     if (!currentUser) return;
@@ -93,10 +98,42 @@ export const StudentDashboard: React.FC = () => {
     loadStudentData();
   }, [currentUser]);
 
-  const handleRequestStatus = async (reqId: string, status: 'accepted' | 'rejected') => {
+  const handleDownloadNote = async (note: StudyNote) => {
+    if (downloadingNoteId === note.id) return;
+    if (!currentUser) return;
+
+    setDownloadingNoteId(note.id);
+    setAlert('Preparing your PDF download…');
+
+    const res = await downloadNotePDF(note, currentUser, currentUser.role === 'admin');
+    setDownloadingNoteId(null);
+
+    if (res.success) {
+      setAlert('Download started successfully.');
+      await loadStudentData();
+    } else {
+      setAlert(res.error || 'Download failed. Please try again.');
+    }
+  };
+
+  const handleDownloadById = async (noteId: string) => {
+    setAlert('Preparing your PDF download…');
+    const note = await getStudyNoteById(noteId);
+    if (!note) {
+      setAlert('This file is no longer available.');
+      return;
+    }
+    await handleDownloadNote(note);
+  };
+
+  const handleRequestStatus = async (reqId: string, status: 'accepted' | 'rejected' | 'completed') => {
     const res = await updateSwapRequestStatus(reqId, status);
     if (res.success) {
-      setAlert(`Request ${status} successfully in Firestore.`);
+      setAlert(
+        status === 'completed'
+          ? 'Skill exchange marked as completed! Any shared course resources have been unlocked.'
+          : `Request ${status} successfully in Firestore.`
+      );
       await loadStudentData();
     }
   };
@@ -344,6 +381,86 @@ export const StudentDashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Incoming Requests on Your Skills */}
+          <div className="pt-6 border-t border-slate-200">
+            <h3 className="text-base font-bold text-slate-900 mb-3">Incoming Exchange Requests Received ({incomingRequests.length})</h3>
+            {incomingRequests.length === 0 ? (
+              <p className="text-xs text-slate-400">No students have requested exchanges on your skills yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {incomingRequests.map((req) => (
+                  <div key={req.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-slate-900">{req.requesterName} ({req.requesterYear})</p>
+                        <span
+                          className={`px-2 py-0.5 rounded-md font-semibold text-[10px] ${
+                            req.status === 'completed'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : req.status === 'accepted'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : req.status === 'rejected'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}
+                        >
+                          {req.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-slate-600 mt-0.5">Requested: <span className="text-indigo-600 font-medium">{req.listingTitle}</span></p>
+                      <p className="text-slate-500">Offered in return: <span className="font-medium text-slate-800">{req.proposedSkill}</span></p>
+                      {req.sharedNoteTitle && (
+                        <p className="text-indigo-600 text-[11px] font-medium">Attached study guide: {req.sharedNoteTitle}</p>
+                      )}
+                      <p className="text-slate-400 italic">"{req.message}"</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {req.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={() => handleRequestStatus(req.id, 'rejected')}
+                            className="px-3 py-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg font-medium"
+                          >
+                            Decline
+                          </button>
+                          <button
+                            onClick={() => handleRequestStatus(req.id, 'accepted')}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold"
+                          >
+                            Accept Swap
+                          </button>
+                        </>
+                      )}
+                      {req.status === 'accepted' && (
+                        <button
+                          onClick={() => handleRequestStatus(req.id, 'completed')}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Mark Completed</span>
+                        </button>
+                      )}
+                      {req.status === 'completed' && req.sharedNoteId && (
+                        <button
+                          disabled={downloadingNoteId === req.sharedNoteId}
+                          onClick={() => handleDownloadById(req.sharedNoteId!)}
+                          className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          {downloadingNoteId === req.sharedNoteId ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
+                          <span>Download Exchanged PDF</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Outgoing Requests */}
           <div className="pt-6 border-t border-slate-200">
             <h3 className="text-base font-bold text-slate-900 mb-3">Outgoing Exchange Requests Sent ({outgoingRequests.length})</h3>
@@ -352,22 +469,43 @@ export const StudentDashboard: React.FC = () => {
             ) : (
               <div className="space-y-2">
                 {outgoingRequests.map((req) => (
-                  <div key={req.id} className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                  <div key={req.id} className="p-3 bg-white rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                     <div>
                       <p className="font-semibold text-slate-900">{req.listingTitle}</p>
                       <p className="text-slate-500">Your proposed skill: {req.proposedSkill}</p>
+                      {req.sharedNoteTitle && (
+                        <p className="text-indigo-600 text-[11px] font-medium">Exchanged resource: {req.sharedNoteTitle}</p>
+                      )}
                     </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-md font-semibold text-[11px] ${
-                        req.status === 'accepted'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : req.status === 'rejected'
-                          ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
-                      {req.status.toUpperCase()}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-md font-semibold text-[11px] ${
+                          req.status === 'completed'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                            : req.status === 'accepted'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : req.status === 'rejected'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                      >
+                        {req.status.toUpperCase()}
+                      </span>
+                      {req.status === 'completed' && req.sharedNoteId && (
+                        <button
+                          disabled={downloadingNoteId === req.sharedNoteId}
+                          onClick={() => handleDownloadById(req.sharedNoteId!)}
+                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          {downloadingNoteId === req.sharedNoteId ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Download className="w-3 h-3" />
+                          )}
+                          <span>Download Exchanged PDF</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -397,12 +535,31 @@ export const StudentDashboard: React.FC = () => {
                   <div key={n.id} className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-blue-700">{n.engineeringYear} · {n.subject}</span>
-                      <button onClick={() => handleDeleteNote(n.id)} className="text-slate-400 hover:text-rose-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <span className="text-slate-400 text-[11px]">{n.downloadsCount || 0} downloads</span>
                     </div>
                     <h4 className="font-bold text-slate-900 text-sm">{n.title}</h4>
                     <p className="text-xs text-slate-500">{n.totalPages} pages · {(n.fileSize / (1024 * 1024)).toFixed(1)} MB PDF</p>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                      <button
+                        disabled={downloadingNoteId === n.id}
+                        onClick={() => handleDownloadNote(n)}
+                        className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      >
+                        {downloadingNoteId === n.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        <span>Download PDF</span>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteNote(n.id)}
+                        className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50"
+                        title="Delete note"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -422,12 +579,26 @@ export const StudentDashboard: React.FC = () => {
                     </span>
                     <h4 className="font-bold text-slate-900 text-sm">{n.title}</h4>
                     <p className="text-xs text-slate-500">By {n.uploaderName} · {n.totalPages} pages</p>
-                    <Link
-                      to="/notes"
-                      className="inline-block text-xs font-semibold text-blue-600 hover:underline pt-1"
-                    >
-                      Open in PDF Reader →
-                    </Link>
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        disabled={downloadingNoteId === n.id}
+                        onClick={() => handleDownloadNote(n)}
+                        className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                      >
+                        {downloadingNoteId === n.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        <span>Download PDF</span>
+                      </button>
+                      <Link
+                        to="/notes"
+                        className="inline-block text-xs font-semibold text-blue-600 hover:underline px-2 py-1.5"
+                      >
+                        Open Reader →
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>

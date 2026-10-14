@@ -28,6 +28,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [upiId, setUpiId] = useState('student@okaxis');
   const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [orderId] = useState(() => `ORD_SS_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`);
 
@@ -64,8 +65,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       });
 
       setIsProcessing(false);
-      onSuccess(result.transaction.id);
-      onClose();
+      setIsSuccess(true);
+      setTimeout(() => {
+        setIsSuccess(false);
+        onSuccess(result.transaction.id);
+        onClose();
+      }, 1200);
     } catch (err: unknown) {
       setIsProcessing(false);
       setErrorMsg((err as Error).message || 'Payment verification failed');
@@ -95,8 +100,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           </button>
         </div>
 
-        {/* Item Summary */}
-        <div className="p-6">
+        {isSuccess ? (
+          <div className="p-10 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
+              <CheckCircle2 className="w-9 h-9" />
+            </div>
+            <h4 className="text-xl font-bold text-slate-900">Payment Verified Successfully!</h4>
+            <p className="text-xs text-slate-600 max-w-xs mx-auto leading-relaxed">
+              Order <span className="font-mono text-slate-800 font-semibold">{orderId}</span> verified. Access has been unlocked in Firestore and your download is starting now.
+            </p>
+          </div>
+        ) : (
+          /* Item Summary */
+          <div className="p-6">
           <div className="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-xl mb-5 flex items-center justify-between">
             <div className="max-w-[70%]">
               <span className="text-[11px] font-semibold tracking-wider uppercase text-indigo-600 block mb-0.5">
@@ -278,6 +294,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
