@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { AlertCircle, Eye, EyeOff, GraduationCap, Lock, LogIn, Mail } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, GraduationCap, Lock, LogIn, Mail, RefreshCw } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login, quickSwitchAccount } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -39,9 +39,29 @@ export const LoginPage: React.FC = () => {
   const handleQuickDemo = async (demoEmail: string) => {
     setIsLoading(true);
     setErrorMsg(null);
-    await quickSwitchAccount(demoEmail);
+    setEmail(demoEmail);
+    const demoPass = demoEmail === 'admin@skillswap.edu' ? 'admin123' : 'student123';
+    setPassword(demoPass);
+
+    const result = await login(demoEmail, demoPass);
+    if (result.success) {
+      navigate(fromPath, { replace: true });
+    } else {
+      // If user is not yet created in the Firebase Authentication project, bootstrap it smoothly
+      const reg = await register({
+        name: demoEmail === 'admin@skillswap.edu' ? 'Administrator' : 'Vaishnavi Adhav',
+        email: demoEmail,
+        password: demoPass,
+        collegeYear: demoEmail === 'admin@skillswap.edu' ? 'Staff' : '2nd Year',
+        department: 'Computer Engineering',
+      });
+      if (reg.success) {
+        navigate(fromPath, { replace: true });
+      } else {
+        setErrorMsg(result.error || 'Authentication error. Please check or register.');
+      }
+    }
     setIsLoading(false);
-    navigate(fromPath, { replace: true });
   };
 
   return (
@@ -55,7 +75,7 @@ export const LoginPage: React.FC = () => {
           </div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Login to SkillSwap</h2>
           <p className="text-xs text-slate-500">
-            Access your skills, engineering notes, and guidance discussions
+            Powered by Firebase Authentication & Firestore
           </p>
         </div>
 
@@ -122,8 +142,17 @@ export const LoginPage: React.FC = () => {
             disabled={isLoading}
             className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <LogIn className="w-4 h-4" />
-            <span>{isLoading ? 'Verifying...' : 'Login'}</span>
+            {isLoading ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Authenticating with Firebase...</span>
+              </>
+            ) : (
+              <>
+                <LogIn className="w-4 h-4" />
+                <span>Login</span>
+              </>
+            )}
           </button>
         </form>
 

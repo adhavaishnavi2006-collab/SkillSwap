@@ -54,26 +54,28 @@ export const StudentDashboard: React.FC = () => {
   const [myTransactions, setMyTransactions] = useState<PaymentTransaction[]>([]);
   const [alert, setAlert] = useState<string | null>(null);
 
-  const loadStudentData = () => {
+  const loadStudentData = async () => {
     if (!currentUser) return;
 
-    const allSkills = getSkillListings();
-    setMySkills(allSkills.filter((s) => s.userId === currentUser.id));
+    const [allSkills, allRequests, allNotes, accessRecords, allDoubts, allTxns] = await Promise.all([
+      getSkillListings(),
+      getSkillRequests(),
+      getStudyNotes(),
+      getNoteAccessRecords(),
+      getGuidanceDoubts(),
+      getTransactions(),
+    ]);
 
-    const allRequests = getSkillRequests();
+    setMySkills(allSkills.filter((s) => s.userId === currentUser.id));
     setIncomingRequests(allRequests.filter((r) => r.ownerId === currentUser.id));
     setOutgoingRequests(allRequests.filter((r) => r.requesterId === currentUser.id));
-
-    const allNotes = getStudyNotes();
     setMyUploadedNotes(allNotes.filter((n) => n.uploaderId === currentUser.id));
 
-    const accessRecords = getNoteAccessRecords();
     const myAccessIds = accessRecords
       .filter((r) => r.userId === currentUser.id && r.accessMethod !== 'uploader')
       .map((r) => r.noteId);
     setMyUnlockedNotes(allNotes.filter((n) => myAccessIds.includes(n.id)));
 
-    const allDoubts = getGuidanceDoubts();
     setMyDoubts(allDoubts.filter((d) => d.studentId === currentUser.id));
 
     let ansCount = 0;
@@ -84,7 +86,6 @@ export const StudentDashboard: React.FC = () => {
     });
     setMyAnswersCount(ansCount);
 
-    const allTxns = getTransactions();
     setMyTransactions(allTxns.filter((t) => t.userId === currentUser.id));
   };
 
@@ -92,25 +93,25 @@ export const StudentDashboard: React.FC = () => {
     loadStudentData();
   }, [currentUser]);
 
-  const handleRequestStatus = (reqId: string, status: 'accepted' | 'rejected') => {
-    const res = updateSwapRequestStatus(reqId, status);
+  const handleRequestStatus = async (reqId: string, status: 'accepted' | 'rejected') => {
+    const res = await updateSwapRequestStatus(reqId, status);
     if (res.success) {
-      setAlert(`Request ${status} successfully.`);
-      loadStudentData();
+      setAlert(`Request ${status} successfully in Firestore.`);
+      await loadStudentData();
     }
   };
 
-  const handleDeleteListing = (id: string) => {
+  const handleDeleteListing = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this skill listing?')) {
-      deleteSkillListing(id);
-      loadStudentData();
+      await deleteSkillListing(id);
+      await loadStudentData();
     }
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this study note?')) {
-      deleteStudyNote(id);
-      loadStudentData();
+      await deleteStudyNote(id);
+      await loadStudentData();
     }
   };
 

@@ -26,49 +26,56 @@ import {
 
 export const AdminDashboard: React.FC = () => {
   const { currentUser } = useAuth();
-  const [metrics, setMetrics] = useState<ReturnType<typeof getAdminMetrics> | null>(null);
+  const [metrics, setMetrics] = useState<Awaited<ReturnType<typeof getAdminMetrics>> | null>(null);
   const [activeTab, setActiveTab] = useState<'students' | 'skills' | 'notes' | 'guidance' | 'payments'>('students');
 
   // Live item lists for moderation
-  const [skillsList, setSkillsList] = useState(getSkillListings());
-  const [notesList, setNotesList] = useState(getStudyNotes());
-  const [doubtsList, setDoubtsList] = useState(getGuidanceDoubts());
-  const [transactionsList, setTransactionsList] = useState(getTransactions());
+  const [skillsList, setSkillsList] = useState<any[]>([]);
+  const [notesList, setNotesList] = useState<any[]>([]);
+  const [doubtsList, setDoubtsList] = useState<any[]>([]);
+  const [transactionsList, setTransactionsList] = useState<any[]>([]);
   const [alert, setAlert] = useState<string | null>(null);
 
-  const refreshAll = () => {
-    setMetrics(getAdminMetrics());
-    setSkillsList(getSkillListings());
-    setNotesList(getStudyNotes());
-    setDoubtsList(getGuidanceDoubts());
-    setTransactionsList(getTransactions());
+  const refreshAll = async () => {
+    const [m, s, n, d, t] = await Promise.all([
+      getAdminMetrics(),
+      getSkillListings(),
+      getStudyNotes(),
+      getGuidanceDoubts(),
+      getTransactions(),
+    ]);
+    setMetrics(m);
+    setSkillsList(s);
+    setNotesList(n);
+    setDoubtsList(d);
+    setTransactionsList(t);
   };
 
   useEffect(() => {
     refreshAll();
   }, []);
 
-  const handleAdminDeleteSkill = (id: string) => {
+  const handleAdminDeleteSkill = async (id: string) => {
     if (window.confirm('Administrative Action: Are you sure you want to remove this skill listing?')) {
-      deleteSkillListing(id);
-      setAlert('Skill listing removed by administrator.');
-      refreshAll();
+      await deleteSkillListing(id);
+      setAlert('Skill listing removed from Firestore by administrator.');
+      await refreshAll();
     }
   };
 
-  const handleAdminDeleteNote = (id: string) => {
+  const handleAdminDeleteNote = async (id: string) => {
     if (window.confirm('Administrative Action: Are you sure you want to remove this course note?')) {
-      deleteStudyNote(id);
-      setAlert('Course note removed by administrator.');
-      refreshAll();
+      await deleteStudyNote(id);
+      setAlert('Course note removed from Firestore by administrator.');
+      await refreshAll();
     }
   };
 
-  const handleAdminDeleteDoubt = (id: string) => {
+  const handleAdminDeleteDoubt = async (id: string) => {
     if (window.confirm('Administrative Action: Are you sure you want to remove this guidance question?')) {
-      deleteGuidanceDoubt(id);
-      setAlert('Guidance question removed by administrator.');
-      refreshAll();
+      await deleteGuidanceDoubt(id);
+      setAlert('Guidance question removed from Firestore by administrator.');
+      await refreshAll();
     }
   };
 

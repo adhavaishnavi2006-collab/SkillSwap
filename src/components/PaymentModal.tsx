@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { recordVerifiedPayment } from '../services/storage';
 import { CheckCircle2, CreditCard, Lock, QrCode, Shield, X, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -21,6 +22,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   amount,
   onSuccess,
 }) => {
+  const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'sandbox' | 'live_config'>('sandbox');
   const [selectedMethod, setSelectedMethod] = useState<'upi' | 'card'>('upi');
   const [upiId, setUpiId] = useState('student@okaxis');
@@ -32,6 +34,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   if (!isOpen) return null;
 
   const handleProcessPayment = async () => {
+    if (!currentUser) {
+      setErrorMsg('You must be logged in to complete payment.');
+      return;
+    }
+
     setIsProcessing(true);
     setErrorMsg(null);
 
@@ -45,14 +52,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         return;
       }
 
-      // Record authentic verified transaction in storage
-      const result = recordVerifiedPayment({
+      // Record authentic verified transaction in Firestore
+      const result = await recordVerifiedPayment({
         orderId,
         itemType,
         itemId,
         itemTitle,
         amount,
         paymentMethod: selectedMethod === 'upi' ? `UPI (${upiId})` : 'Test Campus Card',
+        user: currentUser,
       });
 
       setIsProcessing(false);

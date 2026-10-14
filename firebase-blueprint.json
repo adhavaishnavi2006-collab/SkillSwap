@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Student or Administrator user profile in SkillSwap",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "collegeYear": { "type": "string" },
+        "department": { "type": "string" },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "collegeYear", "department", "joinedAt"]
+    },
+    "SkillSwapListing": {
+      "title": "SkillSwapListing",
+      "description": "Peer skill exchange listing offered by a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userYear": { "type": "string" },
+        "userDepartment": { "type": "string" },
+        "skillOffered": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string" },
+        "description": { "type": "string", "maxLength": 2000 },
+        "skillRequested": { "type": "string", "maxLength": 200 },
+        "exchangeType": { "type": "string", "enum": ["free", "paid"] },
+        "hourlyRate": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "userName", "skillOffered", "category", "description", "skillRequested", "exchangeType", "status", "createdAt"]
+    },
+    "SkillSwapRequest": {
+      "title": "SkillSwapRequest",
+      "description": "Peer request to exchange skills with a listing owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "listingId": { "type": "string" },
+        "listingTitle": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "requesterId": { "type": "string" },
+        "requesterName": { "type": "string" },
+        "requesterYear": { "type": "string" },
+        "requesterEmail": { "type": "string" },
+        "proposedSkill": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["listingId", "ownerId", "requesterId", "requesterName", "proposedSkill", "status", "createdAt"]
+    },
+    "StudyNote": {
+      "title": "StudyNote",
+      "description": "Engineering course study note with PDF access control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "engineeringYear": { "type": "string", "enum": ["1st Year", "2nd Year", "3rd Year", "4th Year"] },
+        "description": { "type": "string", "maxLength": 2000 },
+        "uploaderId": { "type": "string" },
+        "uploaderName": { "type": "string" },
+        "uploaderYear": { "type": "string" },
+        "totalPages": { "type": "number" },
+        "freePreviewPages": { "type": "number" },
+        "fileName": { "type": "string" },
+        "fileSize": { "type": "number" },
+        "fileUrl": { "type": "string" },
+        "accessType": { "type": "string", "enum": ["free_exchange", "paid"] },
+        "price": { "type": "number" },
+        "downloadsCount": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "subject", "engineeringYear", "description", "uploaderId", "uploaderName", "fileName", "fileSize", "accessType", "createdAt"]
+    },
+    "NoteAccessRecord": {
+      "title": "NoteAccessRecord",
+      "description": "Access grant allowing a student to view all pages of a note",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "noteId": { "type": "string" },
+        "userId": { "type": "string" },
+        "accessMethod": { "type": "string", "enum": ["uploader", "free_exchange", "paid"] },
+        "transactionId": { "type": "string" },
+        "unlockedAt": { "type": "string" }
+      },
+      "required": ["noteId", "userId", "accessMethod", "unlockedAt"]
+    },
+    "GuidanceDoubt": {
+      "title": "GuidanceDoubt",
+      "description": "Free academic question asked by a student with peer responses",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string" },
+        "description": { "type": "string", "maxLength": 3000 },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentYear": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "resolved"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "category", "description", "studentId", "studentName", "status", "createdAt"]
+    },
+    "PaymentTransaction": {
+      "title": "PaymentTransaction",
+      "description": "Verified campus payment record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "itemType": { "type": "string", "enum": ["note_access", "skill_swap_session"] },
+        "itemId": { "type": "string" },
+        "itemTitle": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["verified", "failed", "pending"] },
+        "gateway": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "verifiedAt": { "type": "string" }
+      },
+      "required": ["orderId", "userId", "itemType", "itemId", "itemTitle", "amount", "status", "verifiedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Student profiles and roles"
+    },
+    "/skills/{skillId}": {
+      "schema": { "$ref": "#/entities/SkillSwapListing" },
+      "description": "Peer skill exchange listings"
+    },
+    "/skillRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/SkillSwapRequest" },
+      "description": "Skill exchange requests between students"
+    },
+    "/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/StudyNote" },
+      "description": "Course study notes catalog across engineering years"
+    },
+    "/noteAccess/{accessId}": {
+      "schema": { "$ref": "#/entities/NoteAccessRecord" },
+      "description": "Access records for unlocked full PDF notes"
+    },
+    "/guidanceQuestions/{doubtId}": {
+      "schema": { "$ref": "#/entities/GuidanceDoubt" },
+      "description": "Free academic doubts and peer responses"
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/PaymentTransaction" },
+      "description": "Verified payment records ledger"
+    }
+  }
+}

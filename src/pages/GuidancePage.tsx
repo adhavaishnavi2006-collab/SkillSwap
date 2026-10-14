@@ -58,17 +58,18 @@ export const GuidancePage: React.FC = () => {
   // Notifications
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const loadData = () => {
-    setDoubts(getGuidanceDoubts());
+  const loadData = async () => {
+    const fetched = await getGuidanceDoubts();
+    setDoubts(fetched);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const handleAskSubmit = (e: React.FormEvent) => {
+  const handleAskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'You must log in to submit a guidance question.' });
       return;
     }
@@ -83,27 +84,28 @@ export const GuidancePage: React.FC = () => {
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
 
-    const res = createGuidanceDoubt({
+    const res = await createGuidanceDoubt({
       title,
       category,
       description,
       tags: tags.length > 0 ? tags : [category],
+      user: currentUser,
     });
 
     if (res.success) {
-      setAlert({ type: 'success', message: 'Your academic doubt has been posted! Fellow students can now help.' });
+      setAlert({ type: 'success', message: 'Your academic doubt has been posted in Firestore! Fellow students can now help.' });
       setIsAskModalOpen(false);
       setTitle('');
       setDescription('');
       setTagsInput('');
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to submit question.' });
     }
   };
 
-  const handlePostAnswer = (doubtId: string) => {
-    if (!isAuthenticated) {
+  const handlePostAnswer = async (doubtId: string) => {
+    if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'Please log in to respond to guidance queries.' });
       return;
     }
@@ -114,32 +116,33 @@ export const GuidancePage: React.FC = () => {
       return;
     }
 
-    const res = addGuidanceAnswer(doubtId, reply);
+    const res = await addGuidanceAnswer(doubtId, reply, currentUser);
     if (res.success) {
-      setAlert({ type: 'success', message: 'Your solution has been submitted to help this student!' });
+      setAlert({ type: 'success', message: 'Your solution has been submitted in Firestore to help this student!' });
       setReplyTextMap((prev) => ({ ...prev, [doubtId]: '' }));
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to submit answer.' });
     }
   };
 
-  const handleToggleAccept = (doubtId: string, answerId: string) => {
-    const res = toggleAcceptAnswer(doubtId, answerId);
+  const handleToggleAccept = async (doubtId: string, answerId: string) => {
+    if (!currentUser) return;
+    const res = await toggleAcceptAnswer(doubtId, answerId, currentUser);
     if (res.success) {
-      setAlert({ type: 'success', message: 'Answer status updated.' });
-      loadData();
+      setAlert({ type: 'success', message: 'Answer status updated in Firestore.' });
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Could not update answer status.' });
     }
   };
 
-  const handleDeleteDoubt = (id: string) => {
+  const handleDeleteDoubt = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this question?')) {
-      const res = deleteGuidanceDoubt(id);
+      const res = await deleteGuidanceDoubt(id);
       if (res.success) {
-        setAlert({ type: 'success', message: 'Question removed.' });
-        loadData();
+        setAlert({ type: 'success', message: 'Question removed from Firestore.' });
+        await loadData();
       } else {
         setAlert({ type: 'error', message: res.error || 'Failed to delete.' });
       }

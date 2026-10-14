@@ -1,0 +1,25 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Default Deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Notes PDF Uploads: PDF files only, max 20MB, isolated to authenticated uploader
+    match /notes/{userId}/{fileName} {
+      // Authenticated students can read notes
+      allow read: if request.auth != null;
+      
+      // Upload permitted only for the note uploader, strictly validating PDF type and 20MB limit
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size <= 20 * 1024 * 1024
+                   && (request.resource.contentType == 'application/pdf' || fileName.matches('.*\\.pdf$'));
+      
+      // Delete permitted for the uploader
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

@@ -80,6 +80,7 @@ export interface StudyNote {
   fileName: string;
   fileSize: number; // in bytes
   fileDataUrl?: string; // stored data URI or sample representation
+  fileUrl?: string; // Firebase Storage download URL
   accessType: 'free_exchange' | 'paid';
   price?: number; // in ₹ if paid access
   samplePages: NotePageSample[];

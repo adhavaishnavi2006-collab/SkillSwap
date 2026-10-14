@@ -3,9 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { EngineeringYear, StudyNote } from '../types';
 import {
   getStudyNotes,
-  uploadStudyNote,
+  getNoteAccessRecords,
+  uploadStudyNoteWithStorage,
   deleteStudyNote,
-  checkHasFullNoteAccess,
   unlockNoteViaExchange,
 } from '../services/storage';
 import { PaymentModal } from '../components/PaymentModal';
@@ -27,6 +27,7 @@ import {
   X,
   AlertCircle,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 
 const ENGINEERING_YEARS: EngineeringYear[] = [
@@ -40,8 +41,10 @@ export const NotesPage: React.FC = () => {
   const { currentUser, isAuthenticated } = useAuth();
 
   const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [unlockedNoteIds, setUnlockedNoteIds] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
 
   // Modals & Reader
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -65,13 +68,25 @@ export const NotesPage: React.FC = () => {
   // Notifications
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const loadData = () => {
-    setNotes(getStudyNotes());
+  const loadData = async () => {
+    const [fetchedNotes, accessRecords] = await Promise.all([
+      getStudyNotes(),
+      getNoteAccessRecords(),
+    ]);
+    setNotes(fetchedNotes);
+    if (currentUser) {
+      const myAccess = accessRecords
+        .filter((r) => r.userId === currentUser.id)
+        .map((r) => r.noteId);
+      setUnlockedNoteIds(myAccess);
+    } else {
+      setUnlockedNoteIds([]);
+    }
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentUser]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFileError(null);
@@ -97,9 +112,9 @@ export const NotesPage: React.FC = () => {
     setFile(selectedFile);
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'You must log in to upload study notes.' });
       return;
     }
@@ -109,13 +124,13 @@ export const NotesPage: React.FC = () => {
       return;
     }
 
-    const res = uploadStudyNote({
+    setIsUploading(true);
+    const res = await uploadStudyNoteWithStorage({
       title,
       subject,
       engineeringYear: year,
       description,
-      fileName: file.name,
-      fileSize: file.size,
+      file,
       accessType,
       price: accessType === 'paid' ? Number(price) : undefined,
       sampleOutline: [
@@ -125,27 +140,32 @@ export const NotesPage: React.FC = () => {
         { title: `${subject} - Intermediate Problem Sets`, content: `Mid-semester review problems and exam patterns analysis.` },
         { title: `${subject} - Unit Summary & Key Formulas`, content: `Summary formula sheet, cheat-sheet references, and reference textbooks.` },
       ],
+      user: currentUser,
     });
+    setIsUploading(false);
 
     if (res.success) {
-      setAlert({ type: 'success', message: 'Notes uploaded successfully! First 5 pages are open to preview.' });
+      const storageNote = res.storageUploaded
+        ? 'Uploaded to Firebase Storage & registered in Firestore!'
+        : 'Registered in Firestore successfully!';
+      setAlert({ type: 'success', message: `${storageNote} First 5 pages are open to preview.` });
       setIsUploadModalOpen(false);
       setTitle('');
       setSubject('');
       setDescription('');
       setFile(null);
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to upload notes.' });
     }
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this study note?')) {
-      const res = deleteStudyNote(id);
+      const res = await deleteStudyNote(id);
       if (res.success) {
-        setAlert({ type: 'success', message: 'Note removed successfully.' });
-        loadData();
+        setAlert({ type: 'success', message: 'Note removed successfully from Firestore.' });
+        await loadData();
       } else {
         setAlert({ type: 'error', message: res.error || 'Failed to delete note.' });
       }
@@ -157,30 +177,30 @@ export const NotesPage: React.FC = () => {
     setReaderCurrentPage(1);
   };
 
-  const handleUnlockViaExchange = (noteId: string) => {
-    if (!isAuthenticated) {
+  const handleUnlockViaExchange = async (noteId: string) => {
+    if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'Please log in to unlock notes via exchange.' });
       return;
     }
 
-    const res = unlockNoteViaExchange(noteId);
+    const res = await unlockNoteViaExchange(noteId, currentUser);
     if (res.success) {
       setAlert({
         type: 'success',
-        message: 'Full access unlocked through notes exchange! All pages are now viewable.',
+        message: 'Full access unlocked in Firestore through notes exchange! All pages are now viewable.',
       });
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to unlock notes.' });
     }
   };
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     setAlert({
       type: 'success',
-      message: 'Verified campus payment recorded! Full PDF notes access has been unlocked.',
+      message: 'Verified campus payment recorded in Firestore! Full PDF notes access has been unlocked.',
     });
-    loadData();
+    await loadData();
   };
 
   // Filter notes
@@ -340,8 +360,8 @@ export const NotesPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredNotes.map((note) => {
-              const hasFullAccess = checkHasFullNoteAccess(note.id, currentUser?.id);
               const isOwner = currentUser?.id === note.uploaderId;
+              const hasFullAccess = isOwner || unlockedNoteIds.includes(note.id) || currentUser?.role === 'admin';
 
               return (
                 <div
@@ -503,7 +523,7 @@ export const NotesPage: React.FC = () => {
 
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-400 hidden sm:inline">
-                  Page {readerCurrentPage} of {checkHasFullNoteAccess(activeReadingNote.id, currentUser?.id) ? activeReadingNote.totalPages : activeReadingNote.freePreviewPages}
+                  Page {readerCurrentPage} of {(activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin') ? activeReadingNote.totalPages : activeReadingNote.freePreviewPages}
                 </span>
                 <button
                   onClick={() => setActiveReadingNote(null)}
@@ -563,7 +583,7 @@ export const NotesPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ) : checkHasFullNoteAccess(activeReadingNote.id, currentUser?.id) ? (
+                  ) : (activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin') ? (
                     <div className="space-y-4">
                       <div className="inline-block px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-semibold">
                         Unlocked Full Content · Page {readerCurrentPage}
@@ -639,13 +659,13 @@ export const NotesPage: React.FC = () => {
               </button>
 
               <span className="text-xs font-semibold text-slate-700">
-                Page {readerCurrentPage} / {checkHasFullNoteAccess(activeReadingNote.id, currentUser?.id) ? activeReadingNote.totalPages : activeReadingNote.freePreviewPages}
+                Page {readerCurrentPage} / {(activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin') ? activeReadingNote.totalPages : activeReadingNote.freePreviewPages}
               </span>
 
               <button
                 disabled={
                   readerCurrentPage >=
-                  (checkHasFullNoteAccess(activeReadingNote.id, currentUser?.id)
+                  ((activeReadingNote.uploaderId === currentUser?.id || unlockedNoteIds.includes(activeReadingNote.id) || currentUser?.role === 'admin')
                     ? activeReadingNote.totalPages
                     : activeReadingNote.freePreviewPages)
                 }

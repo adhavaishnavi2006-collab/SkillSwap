@@ -70,18 +70,22 @@ export const SkillSwapPage: React.FC = () => {
   // Feedback Notifications
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const loadData = () => {
-    setListings(getSkillListings());
-    setRequests(getSkillRequests());
+  const loadData = async () => {
+    const [fetchedListings, fetchedRequests] = await Promise.all([
+      getSkillListings(),
+      getSkillRequests(),
+    ]);
+    setListings(fetchedListings);
+    setRequests(fetchedRequests);
   };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const handleCreateListing = (e: React.FormEvent) => {
+  const handleCreateListing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !currentUser) {
       setAlert({ type: 'error', message: 'You must log in to post a skill exchange listing.' });
       return;
     }
@@ -91,34 +95,35 @@ export const SkillSwapPage: React.FC = () => {
       return;
     }
 
-    const res = createSkillListing({
+    const res = await createSkillListing({
       skillOffered,
       category,
       description,
       skillRequested,
       exchangeType,
       hourlyRate: exchangeType === 'paid' ? Number(hourlyRate) : undefined,
+      user: currentUser,
     });
 
     if (res.success) {
-      setAlert({ type: 'success', message: 'Your skill listing has been posted successfully!' });
+      setAlert({ type: 'success', message: 'Your skill listing has been posted successfully in Firestore!' });
       setIsAddModalOpen(false);
       setSkillOffered('');
       setDescription('');
       setSkillRequested('');
       setExchangeType('free');
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to post listing.' });
     }
   };
 
-  const handleDeleteListing = (id: string) => {
+  const handleDeleteListing = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this listing?')) {
-      const res = deleteSkillListing(id);
+      const res = await deleteSkillListing(id);
       if (res.success) {
-        setAlert({ type: 'success', message: 'Listing removed successfully.' });
-        loadData();
+        setAlert({ type: 'success', message: 'Listing removed successfully from Firestore.' });
+        await loadData();
       } else {
         setAlert({ type: 'error', message: res.error || 'Failed to remove listing.' });
       }
@@ -136,39 +141,42 @@ export const SkillSwapPage: React.FC = () => {
     setIsRequestModalOpen(true);
   };
 
-  const handleSendSwapRequest = (e: React.FormEvent) => {
+  const handleSendSwapRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetListing) return;
+    if (!targetListing || !currentUser) return;
 
     if (!proposedSkill.trim()) {
       setAlert({ type: 'error', message: 'Please describe the skill you can offer in return.' });
       return;
     }
 
-    const res = createSwapRequest({
+    const res = await createSwapRequest({
       listingId: targetListing.id,
+      listingTitle: `${targetListing.skillOffered} (${targetListing.userName})`,
+      ownerId: targetListing.userId,
       proposedSkill,
       message: requestMessage,
+      user: currentUser,
     });
 
     if (res.success) {
-      setAlert({ type: 'success', message: `Exchange request sent to ${targetListing.userName}!` });
+      setAlert({ type: 'success', message: `Exchange request saved in Firestore for ${targetListing.userName}!` });
       setIsRequestModalOpen(false);
       setTargetListing(null);
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to send request.' });
     }
   };
 
-  const handleRequestStatusChange = (reqId: string, status: 'accepted' | 'rejected') => {
-    const res = updateSwapRequestStatus(reqId, status);
+  const handleRequestStatusChange = async (reqId: string, status: 'accepted' | 'rejected') => {
+    const res = await updateSwapRequestStatus(reqId, status);
     if (res.success) {
       setAlert({
         type: 'success',
-        message: `Request status updated to ${status}.`,
+        message: `Request status updated to ${status} in Firestore.`,
       });
-      loadData();
+      await loadData();
     } else {
       setAlert({ type: 'error', message: res.error || 'Failed to update request.' });
     }
