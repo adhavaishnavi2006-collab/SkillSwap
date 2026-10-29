@@ -1,10 +1,26 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { AlertCircle, CheckCircle2, Eye, EyeOff, GraduationCap, Lock, Mail, User, UserPlus } from 'lucide-react';
+import { useAuth, AuthActionResult } from '../context/AuthContext';
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  GraduationCap,
+  Key,
+  Lock,
+  Mail,
+  ShieldAlert,
+  Sparkles,
+  User,
+  UserPlus,
+  Wrench,
+} from 'lucide-react';
+import { FirebaseDiagnosticsModal } from '../components/FirebaseDiagnosticsModal';
 
 export const CreateAccountPage: React.FC = () => {
-  const { register } = useAuth();
+  const { register, loginAsDemoStudent } = useAuth();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
@@ -15,32 +31,33 @@ export const CreateAccountPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<AuthActionResult | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
+    setErrorDetails(null);
     setSuccessMsg(null);
 
     // Form Validations
     if (!name.trim()) {
-      setErrorMsg('Please enter your full name.');
+      setErrorDetails({ success: false, error: 'Please enter your full name.' });
       return;
     }
 
     if (!email.trim() || !email.includes('@')) {
-      setErrorMsg('Please enter a valid email address.');
+      setErrorDetails({ success: false, error: 'Please enter a valid student email address.' });
       return;
     }
 
     if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
+      setErrorDetails({ success: false, error: 'Password must be at least 6 characters long.' });
       return;
     }
 
     if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match. Please re-enter identical passwords.');
+      setErrorDetails({ success: false, error: 'Passwords do not match. Please re-enter identical passwords.' });
       return;
     }
 
@@ -55,13 +72,20 @@ export const CreateAccountPage: React.FC = () => {
     setIsLoading(false);
 
     if (result.success) {
-      setSuccessMsg('Account created successfully! Redirecting to your student dashboard...');
+      setSuccessMsg(result.details || 'Account created successfully! Redirecting to your student dashboard...');
       setTimeout(() => {
         navigate('/dashboard');
       }, 1000);
     } else {
-      setErrorMsg(result.error || 'Failed to create account.');
+      setErrorDetails(result);
     }
+  };
+
+  const handleDemoStudentFallback = async () => {
+    setIsLoading(true);
+    await loginAsDemoStudent(email || 'adhavaishnavi@gmail.com');
+    setIsLoading(false);
+    navigate('/dashboard');
   };
 
   return (
@@ -77,18 +101,84 @@ export const CreateAccountPage: React.FC = () => {
           <p className="text-xs text-slate-500">
             Join your college peer learning and notes sharing network
           </p>
+          <div className="flex items-center justify-center gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => setShowDiagnosticsModal(true)}
+              className="text-[11px] text-slate-500 hover:text-indigo-600 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 transition-colors"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span>Project: <strong>skillswap-39167</strong></span>
+              <Wrench className="w-2.5 h-2.5 ml-0.5" />
+            </button>
+          </div>
         </div>
 
-        {errorMsg && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{errorMsg}</span>
+        {/* Error Notice */}
+        {errorDetails && (
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2 text-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+              <div className="space-y-1">
+                <p className="font-bold text-slate-900">
+                  {errorDetails.code ? `Registration Error [${errorDetails.code}]` : 'Registration Error'}
+                </p>
+                <p className="text-slate-700 leading-relaxed">{errorDetails.error}</p>
+              </div>
+            </div>
+
+            {/* If Firebase API Key or Configuration Issue */}
+            {errorDetails.isConfigIssue && (
+              <div className="mt-3 pt-3 border-t border-rose-200/60 space-y-2 text-[11px]">
+                <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Why this happened:</span>
+                </div>
+                <p className="text-slate-600 leading-normal">
+                  Google Identity Toolkit reported that the API key configured for project{' '}
+                  <code className="bg-rose-100 px-1 py-0.5 rounded font-mono text-[10px]">skillswap-39167</code> is
+                  either restricted or pending activation in Firebase Console.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiagnosticsModal(true)}
+                    className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Check & Update Key</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDemoStudentFallback}
+                    className="flex-1 py-2 px-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Enter Demo Mode</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* If Account Already Exists */}
+            {errorDetails.code === 'auth/email-already-in-use' && (
+              <div className="mt-2 pt-2 border-t border-rose-200/60 flex justify-end">
+                <Link
+                  to="/login"
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                >
+                  <span>Go to Login Page</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Success Notice */}
         {successMsg && (
-          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
             <span>{successMsg}</span>
           </div>
         )}
@@ -215,19 +305,26 @@ export const CreateAccountPage: React.FC = () => {
             className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50 mt-4"
           >
             <UserPlus className="w-4 h-4" />
-            <span>{isLoading ? 'Creating Account...' : 'Create Account'}</span>
+            <span>{isLoading ? 'Creating Student Account...' : 'Create Account'}</span>
           </button>
         </form>
 
         {/* Link to Login */}
-        <div className="pt-2 text-center text-xs text-slate-600 border-t border-slate-100">
-          <span>Already registered on SkillSwap? </span>
+        <div className="pt-2 text-center text-xs text-slate-600 border-t border-slate-100 flex items-center justify-between">
+          <span>Already registered on SkillSwap?</span>
           <Link to="/login" className="font-semibold text-indigo-600 hover:text-indigo-800">
             Login
           </Link>
         </div>
 
       </div>
+
+      {/* Firebase Diagnostics Modal */}
+      <FirebaseDiagnosticsModal
+        isOpen={showDiagnosticsModal}
+        onClose={() => setShowDiagnosticsModal(false)}
+        initialError={errorDetails?.error}
+      />
     </div>
   );
 };

@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeftRight, BookOpen, GraduationCap, HelpCircle, Mail, Phone, Users } from 'lucide-react';
+import { ArrowLeftRight, BookOpen, GraduationCap, HelpCircle, Mail, Phone, Users, ShieldCheck } from 'lucide-react';
+import { FirebaseDiagnosticsModal } from './FirebaseDiagnosticsModal';
 
 export const Footer: React.FC = () => {
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
   return (
     <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -98,16 +101,27 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        {/* Bottom bar with demo credentials hint */}
+        {/* Bottom bar with demo credentials hint and Firebase status */}
         <div className="mt-10 pt-6 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
           <p>© 2026 SkillSwap Platform. Built for Second-Year Computer Engineering College Project.</p>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span>Student Demo: <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300">adhavaishnavi@gmail.com</code> / <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300">student123</code></span>
+          <div className="flex flex-wrap items-center gap-3 text-slate-400">
+            <button
+              onClick={() => setShowDiagnostics(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-lg border border-slate-700 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Firebase: <strong className="font-mono text-white">skillswap-39167</strong></span>
+            </button>
             <span>·</span>
-            <span>Admin: <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300">admin@skillswap.edu</code> / <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300">admin123</code></span>
+            <span>Student Demo: <code className="bg-slate-800 px-1 py-0.5 rounded text-indigo-300">adhavaishnavi@gmail.com</code></span>
           </div>
         </div>
       </div>
+
+      <FirebaseDiagnosticsModal
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
     </footer>
   );
 };

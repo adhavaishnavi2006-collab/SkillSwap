@@ -226,26 +226,73 @@ export const SEED_INITIAL_GUIDANCE: Omit<GuidanceDoubt, 'id'>[] = [
 // ----------------- USER PROFILE SERVICES (FIRESTORE) -----------------
 
 export async function getUserProfile(userId: string): Promise<User | null> {
+  if (!userId) return null;
+  const cacheKey = `skillswap_user_profile_${userId}`;
+
   try {
     const docRef = doc(db, USERS_COLLECTION, userId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      return snap.data() as User;
+      const data = snap.data() as User;
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(data));
+      } catch {
+        // ignore
+      }
+      return data;
     }
-    return null;
   } catch (error) {
-    console.error('Error fetching user profile:', error);
-    return null;
+    console.warn('[SkillSwap Firestore] Could not fetch profile from cloud, checking local storage:', error);
   }
+
+  // Fallback to local storage cache if offline or initial state
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as User;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
-export async function saveUserProfile(user: User): Promise<void> {
+export async function saveUserProfile(user: User): Promise<{ success: boolean; error?: string; code?: string }> {
   const path = `${USERS_COLLECTION}/${user.id}`;
+  const cacheKey = `skillswap_user_profile_${user.id}`;
+
+  // Strict profile payload matching firestore rules:
+  // request.resource.data.id == userId && (request.resource.data.role == 'student' || isAdmin())
+  const cleanProfile: User = {
+    id: user.id,
+    name: user.name.trim(),
+    email: user.email.trim().toLowerCase(),
+    role: user.role === 'admin' ? 'admin' : 'student',
+    collegeYear: user.collegeYear || '2nd Year',
+    department: user.department || 'Computer Engineering',
+    collegeName: user.collegeName || 'Engineering College',
+    bio: user.bio || '',
+    avatarSeed: user.avatarSeed || user.name.charAt(0).toUpperCase(),
+    joinedAt: user.joinedAt || new Date().toISOString(),
+  };
+
+  // Cache immediately in local storage
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(cleanProfile));
+  } catch {
+    // ignore
+  }
+
   try {
     const docRef = doc(db, USERS_COLLECTION, user.id);
-    await setDoc(docRef, user, { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    await setDoc(docRef, cleanProfile, { merge: true });
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[SkillSwap Firestore] saveUserProfile failed at ${path}:`, error);
+    const code = error?.code || 'firestore/error';
+    const message = error?.message || 'Failed to save user profile in Firestore';
+    return { success: false, error: message, code };
   }
 }
 
