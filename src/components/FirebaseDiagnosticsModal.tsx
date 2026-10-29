@@ -18,6 +18,7 @@ import {
   FirebaseDiagnosticReport,
   getActiveApiKey,
   setActiveApiKey,
+  VERIFIED_DEFAULT_API_KEY,
 } from '../firebase';
 
 interface Props {
@@ -79,7 +80,7 @@ export const FirebaseDiagnosticsModal: React.FC<Props> = ({ isOpen, onClose, ini
 
   const handleResetDefaultKey = () => {
     setActiveApiKey('');
-    const defaultKey = import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBK8vo5f2DBLX72-Kc7Nd-0pAEpG7gl8M8';
+    const defaultKey = import.meta.env.VITE_FIREBASE_API_KEY || VERIFIED_DEFAULT_API_KEY;
     setCustomKeyInput(defaultKey);
     setKeyUpdateNotice('Reset to default project API key. Reloading...');
     setTimeout(() => {
