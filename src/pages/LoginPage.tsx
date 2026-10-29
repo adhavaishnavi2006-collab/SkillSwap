@@ -54,7 +54,8 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     setErrorDetails(null);
     setEmail(demoEmail);
-    const demoPass = demoEmail === 'admin@skillswap.edu' ? 'admin123' : 'student123';
+    const isAdminAccount = demoEmail === 'admin@skillswap.edu' || demoEmail === 'adhavaishnavi2006@gmail.com';
+    const demoPass = isAdminAccount ? 'admin123' : 'student123';
     setPassword(demoPass);
 
     // First attempt real Firebase login
@@ -219,10 +220,10 @@ export const LoginPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => handleQuickDemo('admin@skillswap.edu')}
-              className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors text-center"
+              onClick={() => handleQuickDemo('adhavaishnavi2006@gmail.com')}
+              className="py-1.5 px-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors text-center shadow-xs"
             >
-              Administrator
+              Admin (Vaishnavi)
             </button>
           </div>
         </div>

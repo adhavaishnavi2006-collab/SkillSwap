@@ -17,6 +17,16 @@ import {
 import { User } from '../types';
 import { getUserProfile, saveUserProfile } from '../services/storage';
 
+export const ADMIN_EMAILS = [
+  'adhavaishnavi2006@gmail.com',
+  'admin@skillswap.edu',
+];
+
+export function checkIsAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+}
+
 export interface AuthActionResult {
   success: boolean;
   error?: string;
@@ -45,6 +55,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<AuthActionResult>;
   refreshUser: () => Promise<void>;
+  refreshAdminToken: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,6 +63,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [hasAdminCustomClaim, setHasAdminCustomClaim] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastErrorCode, setLastErrorCode] = useState<string | null>(null);
@@ -63,18 +75,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (fbUser) {
         try {
-          // Fetch student profile from Firestore
+          // Cryptographically verify ID token claims from Google Identity Toolkit
+          const tokenResult = await fbUser.getIdTokenResult();
+          const isClaimAdmin = tokenResult.claims.admin === true;
+          const isEmailAdmin = checkIsAdminEmail(fbUser.email);
+          const isUserAdmin = isClaimAdmin || isEmailAdmin;
+
+          setHasAdminCustomClaim(isClaimAdmin);
+
+          // Fetch student/admin profile from Firestore
           let profile = await getUserProfile(fbUser.uid);
 
           if (!profile) {
             // Construct fallback profile from auth credentials (Idempotent recovery)
-            const isDefaultAdmin = fbUser.email?.toLowerCase() === 'admin@skillswap.edu';
             const newProfile: User = {
               id: fbUser.uid,
-              name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Student',
+              name: fbUser.displayName || fbUser.email?.split('@')[0] || (isUserAdmin ? 'Administrator' : 'Student'),
               email: fbUser.email || '',
-              role: isDefaultAdmin ? 'admin' : 'student',
-              collegeYear: '2nd Year',
+              role: isUserAdmin ? 'admin' : 'student',
+              collegeYear: isUserAdmin ? 'Faculty / Staff' : '2nd Year',
               department: 'Computer Engineering',
               collegeName: 'Engineering College',
               joinedAt: new Date().toISOString(),
@@ -82,18 +101,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Persist to Firestore
             await saveUserProfile(newProfile);
             profile = newProfile;
+          } else if (isUserAdmin && profile.role !== 'admin') {
+            // Synchronize authorized role in Firestore
+            profile.role = 'admin';
+            await saveUserProfile(profile);
+          } else if (!isUserAdmin && profile.role === 'admin') {
+            // Enforce student role for unauthorized users
+            profile.role = 'student';
+            await saveUserProfile(profile);
           }
+
           setCurrentUser(profile);
         } catch (err) {
           console.warn('[SkillSwap Auth] Error resolving user profile on state change:', err);
-          // Set in-memory fallback user so UI doesn't crash
-          const isDefaultAdmin = fbUser.email?.toLowerCase() === 'admin@skillswap.edu';
+          const isEmailAdmin = checkIsAdminEmail(fbUser.email);
           setCurrentUser({
             id: fbUser.uid,
-            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Student',
+            name: fbUser.displayName || fbUser.email?.split('@')[0] || (isEmailAdmin ? 'Administrator' : 'Student'),
             email: fbUser.email || '',
-            role: isDefaultAdmin ? 'admin' : 'student',
-            collegeYear: '2nd Year',
+            role: isEmailAdmin ? 'admin' : 'student',
+            collegeYear: isEmailAdmin ? 'Faculty / Staff' : '2nd Year',
             department: 'Computer Engineering',
             joinedAt: new Date().toISOString(),
           });
@@ -111,6 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           setCurrentUser(null);
         }
+        setHasAdminCustomClaim(false);
       }
 
       setLoading(false);
@@ -118,6 +146,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => unsubscribe();
   }, []);
+
+  const refreshAdminToken = async (): Promise<boolean> => {
+    if (auth.currentUser) {
+      try {
+        console.log('[SkillSwap Auth] Force-refreshing Firebase ID Token to retrieve custom claims...');
+        await auth.currentUser.getIdToken(true);
+        const tokenResult = await auth.currentUser.getIdTokenResult(true);
+        const isClaimAdmin = tokenResult.claims.admin === true;
+        const isEmailAdmin = checkIsAdminEmail(auth.currentUser.email);
+        const isNowAdmin = isClaimAdmin || isEmailAdmin;
+
+        setHasAdminCustomClaim(isClaimAdmin);
+
+        if (currentUser && currentUser.role !== (isNowAdmin ? 'admin' : 'student')) {
+          const updated: User = { ...currentUser, role: isNowAdmin ? 'admin' : 'student' };
+          setCurrentUser(updated);
+          await saveUserProfile(updated);
+        }
+        return isNowAdmin;
+      } catch (e) {
+        console.error('[SkillSwap Auth] Error refreshing ID token:', e);
+      }
+    }
+    return false;
+  };
 
   const login = async (email: string, pass: string): Promise<AuthActionResult> => {
     setLastError(null);
@@ -129,20 +182,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log(`[SkillSwap Auth] Attempting Firebase signIn for ${normalizedEmail}...`);
       const cred = await signInWithEmailAndPassword(auth, normalizedEmail, pass);
       
+      // Force refresh token to obtain latest custom claims from server
+      const tokenResult = await cred.user.getIdTokenResult(true);
+      const isClaimAdmin = tokenResult.claims.admin === true;
+      const isEmailAdmin = checkIsAdminEmail(normalizedEmail);
+      const isUserAdmin = isClaimAdmin || isEmailAdmin;
+
+      setHasAdminCustomClaim(isClaimAdmin);
+
       // Idempotently ensure profile exists in Firestore
       let profile = await getUserProfile(cred.user.uid);
       if (!profile) {
         console.log('[SkillSwap Auth] Profile not found in Firestore. Restoring student profile...');
-        const isDefaultAdmin = normalizedEmail === 'admin@skillswap.edu';
         profile = {
           id: cred.user.uid,
-          name: cred.user.displayName || normalizedEmail.split('@')[0] || 'Student',
+          name: cred.user.displayName || normalizedEmail.split('@')[0] || (isUserAdmin ? 'Administrator' : 'Student'),
           email: normalizedEmail,
-          role: isDefaultAdmin ? 'admin' : 'student',
-          collegeYear: '2nd Year',
+          role: isUserAdmin ? 'admin' : 'student',
+          collegeYear: isUserAdmin ? 'Faculty / Staff' : '2nd Year',
           department: 'Computer Engineering',
           joinedAt: new Date().toISOString(),
         };
+        await saveUserProfile(profile);
+      } else if (isUserAdmin && profile.role !== 'admin') {
+        profile.role = 'admin';
         await saveUserProfile(profile);
       }
 
@@ -279,23 +342,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('[SkillSwap Auth] Non-critical: Could not update displayName:', e);
     }
 
-    // Role determination: prevent self-assigning admin unless designated admin email
-    const isConfiguredAdmin = normalizedEmail === 'admin@skillswap.edu';
+    // Role determination: only designated admin emails or claim holders receive admin role
+    const isDesignatedAdmin = checkIsAdminEmail(normalizedEmail);
 
-    // Strictly match schema & security rule constraints:
-    // request.resource.data.id == userId && request.resource.data.role == 'student'
     const studentProfile: User = {
       id: fbUser.uid,
       name: trimmedName,
       email: normalizedEmail,
-      role: isConfiguredAdmin ? 'admin' : 'student',
-      collegeYear: params.collegeYear,
+      role: isDesignatedAdmin ? 'admin' : 'student',
+      collegeYear: isDesignatedAdmin ? 'Faculty / Staff' : params.collegeYear,
       department: params.department,
       joinedAt: new Date().toISOString(),
     };
 
     // Save student profile to Cloud Firestore
-    console.log(`[SkillSwap Auth] Writing student profile to Firestore at /users/${fbUser.uid}...`);
+    console.log(`[SkillSwap Auth] Writing user profile to Firestore at /users/${fbUser.uid}...`);
     const profileSaveResult = await saveUserProfile(studentProfile);
 
     // Update state
@@ -310,23 +371,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return {
       success: true,
       details: isRecoveredUser
-        ? 'Existing account detected. Student profile was successfully restored!'
-        : 'Student account created successfully!',
+        ? 'Existing account detected. User profile was successfully restored!'
+        : (isDesignatedAdmin ? 'Administrator account created successfully!' : 'Student account created successfully!'),
     };
   };
 
   /**
-   * Demo Student Mode: allows instant testing of all platform features even if
-   * Firebase API key restrictions or offline status prevent cloud authentication.
+   * Demo Student Mode: allows instant testing of all platform features
    */
   const loginAsDemoStudent = async (demoEmail: string = 'adhavaishnavi@gmail.com'): Promise<AuthActionResult> => {
-    const isAdminUser = demoEmail === 'admin@skillswap.edu';
+    const isTargetAdmin = checkIsAdminEmail(demoEmail);
     const demoUser: User = {
-      id: isAdminUser ? 'demo_admin_user_id' : 'demo_student_vaishnavi_id',
-      name: isAdminUser ? 'SkillSwap Administrator' : 'Vaishnavi Adhav',
+      id: isTargetAdmin ? 'demo_admin_user_id' : 'demo_student_vaishnavi_id',
+      name: isTargetAdmin ? 'Vaishnavi Adhav (Administrator)' : 'Vaishnavi Adhav',
       email: demoEmail,
-      role: isAdminUser ? 'admin' : 'student',
-      collegeYear: isAdminUser ? 'Staff' : '2nd Year',
+      role: isTargetAdmin ? 'admin' : 'student',
+      collegeYear: isTargetAdmin ? 'Faculty / Staff' : '2nd Year',
       department: 'Computer Engineering',
       collegeName: 'Engineering College',
       joinedAt: new Date().toISOString(),
@@ -360,7 +420,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (isApiKeyError(code, rawMsg)) {
         message = 'Firebase Web API key is invalid or restricted (auth/api-key-not-valid). Please check Firebase Console.';
       } else if (code === 'auth/user-not-found') {
-        message = 'No registered student account was found with this email.';
+        message = 'No registered account was found with this email.';
       } else if (code === 'auth/invalid-email') {
         message = 'Please enter a valid email address.';
       }
@@ -378,6 +438,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('skillswap_demo_session');
     setCurrentUser(null);
     setFirebaseUser(null);
+    setHasAdminCustomClaim(false);
   };
 
   const refreshUser = async () => {
@@ -387,11 +448,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Authoritative admin verification: user must have 'admin' role in profile AND
+  // must match an authorized admin email OR have the verified custom claim { admin: true }
+  const isAdmin = Boolean(
+    currentUser?.role === 'admin' && (
+      checkIsAdminEmail(firebaseUser?.email) ||
+      checkIsAdminEmail(currentUser?.email) ||
+      hasAdminCustomClaim
+    )
+  );
+
   const value: AuthContextType = {
     currentUser,
     firebaseUser,
     isAuthenticated: !!currentUser,
-    isAdmin: currentUser?.role === 'admin' || firebaseUser?.email === 'admin@skillswap.edu',
+    isAdmin,
     loading,
     lastError,
     lastErrorCode,
@@ -401,6 +472,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     resetPassword,
     refreshUser,
+    refreshAdminToken,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
