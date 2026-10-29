@@ -54,26 +54,37 @@ export const FirebaseDiagnosticsModal: React.FC<Props> = ({ isOpen, onClose, ini
 
   if (!isOpen) return null;
 
-  const handleSaveApiKey = () => {
-    const trimmed = customKeyInput.trim();
+  const handleSaveApiKey = async () => {
+    const trimmed = customKeyInput.trim().replace(/^["']|["']$/g, '');
     if (!trimmed) {
       setKeyUpdateNotice('Please enter an API key.');
       return;
     }
     setActiveApiKey(trimmed);
-    setKeyUpdateNotice('API Key updated! Re-running diagnostic probe...');
-    setTimeout(() => {
-      executeDiagnostics();
-    }, 400);
+    setKeyUpdateNotice('API Key updated! Testing connection and reloading application...');
+    setIsRunning(true);
+    const testReport = await runFirebaseDiagnostics(trimmed);
+    setReport(testReport);
+    setIsRunning(false);
+
+    if (testReport.auth.status === 'ok') {
+      setKeyUpdateNotice('Valid API key verified! Reloading app in 1 second...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+    } else {
+      setKeyUpdateNotice(`Saved key, but probe returned: ${testReport.auth.message || testReport.auth.code}. Reload to apply anyway.`);
+    }
   };
 
   const handleResetDefaultKey = () => {
     setActiveApiKey('');
-    setCustomKeyInput(import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBK8vo5f2DBLX72-Kc7Nd-0pAEpG7gl8M8');
-    setKeyUpdateNotice('Reset to default project API key.');
+    const defaultKey = import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyBK8vo5f2DBLX72-Kc7Nd-0pAEpG7gl8M8';
+    setCustomKeyInput(defaultKey);
+    setKeyUpdateNotice('Reset to default project API key. Reloading...');
     setTimeout(() => {
-      executeDiagnostics();
-    }, 400);
+      window.location.reload();
+    }, 600);
   };
 
   return (

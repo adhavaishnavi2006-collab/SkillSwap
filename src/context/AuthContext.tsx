@@ -8,7 +8,12 @@ import {
   updateProfile,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import {
+  auth,
+  isApiKeyError,
+  isOperationNotAllowed,
+  isEmailAlreadyInUse,
+} from '../firebase';
 import { User } from '../types';
 import { getUserProfile, saveUserProfile } from '../services/storage';
 
@@ -154,16 +159,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let message = 'Failed to log in. Please check your email and password.';
       let isConfigIssue = false;
 
-      if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
+      if (isApiKeyError(code, rawMsg)) {
+        isConfigIssue = true;
+        message = 'Firebase Web API key is invalid or restricted (auth/api-key-not-valid). Please verify your Web API Key in Firebase Console for project "skillswap-39167".';
+      } else if (isOperationNotAllowed(code, rawMsg)) {
+        isConfigIssue = true;
+        message = 'Email/Password sign-in method is disabled in Firebase Console. Please enable "Email/Password" under Authentication > Sign-in method.';
+      } else if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
         message = 'Invalid email or password. If you do not have an account, please create one.';
       } else if (code === 'auth/wrong-password') {
         message = 'Incorrect password. Please verify your credentials.';
-      } else if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key' || rawMsg.includes('API key not valid')) {
-        isConfigIssue = true;
-        message = 'Firebase API key is invalid or restricted (auth/api-key-not-valid). Please verify your Web API Key in Firebase Console for project "skillswap-39167".';
-      } else if (code === 'auth/operation-not-allowed') {
-        isConfigIssue = true;
-        message = 'Email/Password sign-in method is disabled in Firebase Console. Please enable "Email/Password" under Authentication > Sign-in method.';
       } else if (code === 'auth/too-many-requests') {
         message = 'Access temporarily disabled due to multiple failed attempts. Try again later or reset password.';
       } else if (code === 'auth/invalid-email') {
@@ -214,10 +219,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn(`[SkillSwap Auth] Registration failed with code: ${authCode}`, authError);
       setLastErrorCode(authCode);
 
+      // Check API Key Error first across all code & message variations
+      if (isApiKeyError(authCode, authMsg)) {
+        const msg = 'Firebase Web API key is invalid or restricted (auth/api-key-not-valid). Please verify your Web API Key in Firebase Console for project "skillswap-39167".';
+        setLastError(msg);
+        return { success: false, code: 'auth/api-key-not-valid', error: msg, isConfigIssue: true };
+      }
+
+      // Check Operation Not Allowed (Email/Password disabled in Console)
+      if (isOperationNotAllowed(authCode, authMsg)) {
+        const msg = 'Email/Password sign-in method is disabled in Firebase Console. Please enable "Email/Password" under Firebase Console > Authentication > Sign-in method.';
+        setLastError(msg);
+        return { success: false, code: 'auth/operation-not-allowed', error: msg, isConfigIssue: true };
+      }
+
       // IDEMPOTENCY RECOVERY:
       // If the email is already in use (e.g. from an earlier registration attempt that failed during profile write),
       // attempt signing in with the provided password to repair and complete the profile!
-      if (authCode === 'auth/email-already-in-use') {
+      if (isEmailAlreadyInUse(authCode, authMsg)) {
         console.log('[SkillSwap Auth] Email already in Auth. Attempting recovery sign-in to restore profile...');
         try {
           userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, params.password);
@@ -228,18 +247,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLastError(msg);
           return { success: false, code: 'auth/email-already-in-use', error: msg };
         }
-      } else if (
-        authCode === 'auth/api-key-not-valid' ||
-        authCode === 'auth/invalid-api-key' ||
-        authMsg.includes('API key not valid')
-      ) {
-        const msg = 'Firebase API key is invalid or restricted (auth/api-key-not-valid). Please verify your Web API Key in Firebase Console for project "skillswap-39167".';
-        setLastError(msg);
-        return { success: false, code: 'auth/api-key-not-valid', error: msg, isConfigIssue: true };
-      } else if (authCode === 'auth/operation-not-allowed') {
-        const msg = 'Email/Password sign-in method is disabled in Firebase Console. Please enable "Email/Password" under Firebase Console > Authentication > Sign-in method.';
-        setLastError(msg);
-        return { success: false, code: 'auth/operation-not-allowed', error: msg, isConfigIssue: true };
       } else if (authCode === 'auth/weak-password') {
         const msg = 'Password is too weak. Please use at least 6 characters.';
         setLastError(msg);
@@ -345,15 +352,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     } catch (err: any) {
       console.error('[SkillSwap Auth] Password Reset Error:', err);
-      const code = err?.code;
+      const code = err?.code || '';
+      const rawMsg = err?.message || String(err);
       setLastErrorCode(code);
+
       let message = 'Failed to send password reset email.';
-      if (code === 'auth/user-not-found') {
+      if (isApiKeyError(code, rawMsg)) {
+        message = 'Firebase Web API key is invalid or restricted (auth/api-key-not-valid). Please check Firebase Console.';
+      } else if (code === 'auth/user-not-found') {
         message = 'No registered student account was found with this email.';
       } else if (code === 'auth/invalid-email') {
         message = 'Please enter a valid email address.';
-      } else if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key') {
-        message = 'Firebase API key is invalid or restricted (auth/api-key-not-valid). Please check Firebase Console.';
       }
       setLastError(message);
       return { success: false, error: message, code };

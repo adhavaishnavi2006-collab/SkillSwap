@@ -5,6 +5,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
+  ExternalLink,
   Eye,
   EyeOff,
   GraduationCap,
@@ -18,6 +19,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { FirebaseDiagnosticsModal } from '../components/FirebaseDiagnosticsModal';
+import { isApiKeyError, setActiveApiKey, getActiveApiKey, isValidApiKeyFormat } from '../firebase';
 
 export const CreateAccountPage: React.FC = () => {
   const { register, loginAsDemoStudent } = useAuth();
@@ -35,10 +37,16 @@ export const CreateAccountPage: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState(false);
 
+  // Inline API key updater state
+  const [newApiKeyInput, setNewApiKeyInput] = useState('');
+  const [isApplyingKey, setIsApplyingKey] = useState(false);
+  const [apiKeyFeedback, setApiKeyFeedback] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorDetails(null);
     setSuccessMsg(null);
+    setApiKeyFeedback(null);
 
     // Form Validations
     if (!name.trim()) {
@@ -81,12 +89,32 @@ export const CreateAccountPage: React.FC = () => {
     }
   };
 
+  const handleApplyInlineApiKey = () => {
+    const cleanKey = newApiKeyInput.trim().replace(/^["']|["']$/g, '');
+    if (!cleanKey) {
+      setApiKeyFeedback('Please paste a valid Web API Key.');
+      return;
+    }
+    if (!isValidApiKeyFormat(cleanKey)) {
+      setApiKeyFeedback('Format notice: A Google Web API key typically starts with "AIzaSy" and is 39 characters. Saving and testing...');
+    }
+
+    setIsApplyingKey(true);
+    setActiveApiKey(cleanKey);
+    setApiKeyFeedback('API key saved! Reloading application to apply credentials...');
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
+  };
+
   const handleDemoStudentFallback = async () => {
     setIsLoading(true);
     await loginAsDemoStudent(email || 'adhavaishnavi@gmail.com');
     setIsLoading(false);
     navigate('/dashboard');
   };
+
+  const isConfigError = errorDetails?.isConfigIssue || (errorDetails && isApiKeyError(errorDetails.code, errorDetails.error));
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">
@@ -105,7 +133,7 @@ export const CreateAccountPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowDiagnosticsModal(true)}
-              className="text-[11px] text-slate-500 hover:text-indigo-600 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 transition-colors"
+              className="text-[11px] text-slate-500 hover:text-indigo-600 bg-slate-50 hover:bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200 flex items-center gap-1 transition-colors"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
               <span>Project: <strong>skillswap-39167</strong></span>
@@ -116,7 +144,7 @@ export const CreateAccountPage: React.FC = () => {
 
         {/* Error Notice */}
         {errorDetails && (
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2 text-xs">
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 space-y-2.5 text-xs text-left">
             <div className="flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
               <div className="space-y-1">
@@ -127,9 +155,9 @@ export const CreateAccountPage: React.FC = () => {
               </div>
             </div>
 
-            {/* If Firebase API Key or Configuration Issue */}
-            {errorDetails.isConfigIssue && (
-              <div className="mt-3 pt-3 border-t border-rose-200/60 space-y-2 text-[11px]">
+            {/* If Firebase API Key or Configuration Issue: Inline Resolver */}
+            {isConfigError && (
+              <div className="mt-3 pt-3 border-t border-rose-200 space-y-3 text-[11px]">
                 <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
                   <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>Why this happened:</span>
@@ -137,24 +165,63 @@ export const CreateAccountPage: React.FC = () => {
                 <p className="text-slate-600 leading-normal">
                   Google Identity Toolkit reported that the API key configured for project{' '}
                   <code className="bg-rose-100 px-1 py-0.5 rounded font-mono text-[10px]">skillswap-39167</code> is
-                  either restricted or pending activation in Firebase Console.
+                  unrecognized, revoked, or restricted in the Google Cloud Console.
                 </p>
+
+                <div className="p-3 bg-white border border-slate-200 rounded-xl space-y-2">
+                  <label className="block font-semibold text-slate-800 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Paste Active Web API Key from Firebase Console:</span>
+                  </label>
+                  <p className="text-[10px] text-slate-500">
+                    Get it from:{' '}
+                    <a
+                      href="https://console.firebase.google.com/project/skillswap-39167/settings/general"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-600 underline font-semibold inline-flex items-center gap-0.5"
+                    >
+                      Firebase Console &gt; Project Settings &gt; General &gt; Your Apps <ExternalLink className="w-2.5 h-2.5 inline" />
+                    </a>
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newApiKeyInput}
+                      onChange={(e) => setNewApiKeyInput(e.target.value)}
+                      placeholder="AIzaSy..."
+                      className="flex-1 font-mono text-xs px-2.5 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={isApplyingKey}
+                      onClick={handleApplyInlineApiKey}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition-colors disabled:opacity-50"
+                    >
+                      {isApplyingKey ? 'Applying...' : 'Apply Key'}
+                    </button>
+                  </div>
+                  {apiKeyFeedback && (
+                    <p className="text-emerald-700 font-medium text-[10px]">{apiKeyFeedback}</p>
+                  )}
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowDiagnosticsModal(true)}
-                    className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors"
+                    className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors"
                   >
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Check & Update Key</span>
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>Run Diagnostics</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleDemoStudentFallback}
-                    className="flex-1 py-2 px-3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors"
+                    className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-semibold flex items-center justify-center gap-1.5 text-center transition-colors shadow-xs"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Enter Demo Mode</span>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-100" />
+                    <span>Test in Demo Mode</span>
                   </button>
                 </div>
               </div>
